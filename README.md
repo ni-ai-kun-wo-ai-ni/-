@@ -16,7 +16,7 @@
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\创建桌面快捷方式.ps1
 ```
 
-启动脚本会保留已有账号、学生、任务及提交。启动失败时会保留错误提示，按回车关闭窗口；不会修改全局 PowerShell 执行策略。当前网址也保存在 `.local/public-url.txt`。已实际验证 Windows PowerShell 启动、生产构建、重复启动检测、桌面快捷方式目标及匿名公网访问。
+启动脚本会保留已有账号、学生、任务及提交。桌面快捷方式直接调用 Windows PowerShell，并保留窗口显示结果，避免批处理启动失败时闪退；不会修改全局 PowerShell 执行策略。备用的 `一键启动.cmd` 使用 Windows CRLF 换行，已通过 `.gitattributes` 固定，中文 PowerShell 脚本保留 UTF-8 BOM。当前网址也保存在 `.local/public-url.txt`。已实际验证 Windows PowerShell 启动、生产构建、重复启动检测、桌面快捷方式及完整批处理入口和匿名公网访问。
 
 ## 让校外和手机流量也能访问（公网模式）
 
