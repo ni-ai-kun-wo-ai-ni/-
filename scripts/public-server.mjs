@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { rmSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 import { compare } from 'bcryptjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -15,6 +16,8 @@ const expectedHash = '2493dbc168923bb3e59e5e7716f71deced92992eea9acd6e9d74f84ac7
 const download =
   'https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-windows-amd64.exe';
 const port = Number(process.env.PUBLIC_PORT || 3100);
+const stateFile = resolve(local, 'public-server.json');
+let stateWritten = false;
 let app;
 let tunnel;
 let stopping = false;
@@ -23,6 +26,14 @@ function stop(code = 0) {
   stopping = true;
   app?.kill();
   tunnel?.kill();
+  if (stateWritten) {
+    try {
+      rmSync(stateFile, { force: true });
+    } catch {
+      /* 不影响进程退出。 */
+    }
+    stateWritten = false;
+  }
   process.exitCode = code;
 }
 process.on('SIGINT', () => stop());
@@ -116,10 +127,37 @@ async function main() {
       stop(1);
     }
   });
+  // 本机网站准备好再打开浏览器，防止用户看到启动期间的连接错误。
+  const readyDeadline = Date.now() + 30000;
+  let ready = false;
+  while (!stopping && Date.now() < readyDeadline) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      if (response.ok) {
+        ready = true;
+        break;
+      }
+    } catch {
+      /* Next.js 仍在启动，稍后再试。 */
+    }
+    await new Promise((done) => setTimeout(done, 300));
+  }
+  if (!ready || stopping) throw new Error('网站未能准备就绪，请检查上方错误。');
   await writeFile(resolve(local, 'public-url.txt'), origin + '\n');
+  await writeFile(
+    stateFile,
+    JSON.stringify({ pid: process.pid, port, url: origin, root: resolve(root) }),
+  );
+  stateWritten = true;
   console.log(
     `\n公网访问地址：${origin}\n账号密码文件：${resolve(local, '公网账号密码.csv')}\n电脑需持续开机联网。按 Ctrl+C 同时停止网页和隧道。重启后公网地址会变化。\n`,
   );
+  if (process.argv.includes('--open')) {
+    const browser = spawn('explorer.exe', [origin], { windowsHide: true, stdio: 'ignore' });
+    browser.on('error', () => console.log('无法自动打开浏览器，请复制上方公网地址手动打开。'));
+  }
 }
 main().catch((error) => {
   console.error(error.message);
