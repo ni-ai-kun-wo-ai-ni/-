@@ -3,6 +3,7 @@ import { useState, useRef } from 'react';
 import { api, type Bootstrap, type Person } from '@/lib/types';
 import TransferStudentDialog from './transfer-student-dialog';
 import StudentIdentityDialog from './student-identity-dialog';
+import StudentImportDialog from './student-import-dialog';
 
 export default function StudentManagement({
   data,
@@ -18,6 +19,7 @@ export default function StudentManagement({
   refresh: () => Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [deleting, setDeleting] = useState<Person | null>(null);
   const [transferring, setTransferring] = useState<Person | null>(null);
   const [settingIdentity, setSettingIdentity] = useState<Person | null>(null);
@@ -60,6 +62,17 @@ export default function StudentManagement({
           />
           <button disabled={busy || !data.grades.some((g) => g.classes.length)} onClick={openAdd}>
             ＋ 添加学生
+          </button>
+          <button
+            className="secondary"
+            disabled={busy || !data.grades.some((g) => g.classes.length)}
+            onClick={() => {
+              setNotice('');
+              setError('');
+              setImporting(true);
+            }}
+          >
+            批量导入
           </button>
         </div>
         {notice && (
@@ -152,6 +165,25 @@ export default function StudentManagement({
           </table>
         </div>
       </div>
+      {importing && (
+        <StudentImportDialog
+          grades={data.grades}
+          initialGradeId={gradeFilter}
+          onCancel={() => setImporting(false)}
+          onImported={async (count) => {
+            setImporting(false);
+            setSearch('');
+            setNotice(
+              `已成功导入 ${count} 名学生，账号为学号，初始密码为 123456，首次登录需改密。`,
+            );
+            try {
+              await refresh();
+            } catch {
+              setNotice(`已成功导入 ${count} 名学生，但刷新列表失败，请刷新页面，勿重复导入。`);
+            }
+          }}
+        />
+      )}
       {settingIdentity && (
         <StudentIdentityDialog
           key={settingIdentity.id}

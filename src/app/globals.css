@@ -53,6 +53,13 @@
 .student-toolbar {
   flex-wrap: wrap;
 }
+.import-dialog {
+  width: min(100%, 900px);
+}
+.import-preview {
+  max-height: 360px;
+  overflow: auto;
+}
 :root {
   --green: #176b5b;
   --dark: #163c34;

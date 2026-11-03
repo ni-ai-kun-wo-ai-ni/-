@@ -17,6 +17,7 @@ import { taskSchema, validateAnswers } from '@/lib/validation';
 import { createStudent, deleteStudent, transferStudent, setStudentIdentity } from '@/lib/students';
 import { completeInitialPassword } from '@/lib/initial-password';
 import { createGrade, createClass, deleteOrganization } from '@/lib/organization';
+import { importStudents, studentImportTemplate } from '@/lib/student-import';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ path: string[] }> };
@@ -157,6 +158,21 @@ async function handle(req: NextRequest, ctx: Context) {
     if (key === 'students' && write) {
       teacherOnly(user);
       return json(await createStudent(user, await req.json()));
+    }
+    if (key === 'students/import' && write) {
+      teacherOnly(user);
+      return json(await importStudents(user, req));
+    }
+    if (key === 'students/import-template' && !write) {
+      teacherOnly(user);
+      const buffer = await studentImportTemplate(user);
+      return new NextResponse(new Uint8Array(buffer), {
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="student-import-template.xlsx"; filename*=UTF-8''${encodeURIComponent('学生导入模板.xlsx')}`,
+          'Cache-Control': 'no-store',
+        },
+      });
     }
     if (path.length === 3 && path[0] === 'students' && path[2] === 'delete' && write) {
       teacherOnly(user);
