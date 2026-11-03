@@ -327,13 +327,8 @@ small {
   color: #98a49b;
   font-size: 10px;
 }
-.stat.accent {
-  background: #eaf2ec;
-  border-color: #e0e9df;
-}
-.stat.accent h3 {
-  font-size: 16px;
-  line-height: 1.6;
+.stats.home-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .green {
   color: var(--green);
@@ -955,8 +950,8 @@ footer {
   .stat strong {
     font-size: 28px;
   }
-  .stat.accent h3 {
-    font-size: 13px;
+  .stats.home-stats {
+    grid-template-columns: 1fr;
   }
   .panel {
     padding: 19px;

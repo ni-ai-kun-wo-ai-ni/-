@@ -362,7 +362,7 @@ export default function Workspace() {
           )}
           {view === 'home' && (
             <>
-              <div className="stats">
+              <div className="stats home-stats">
                 <div className="stat">
                   <span>{teacher ? '学生总人数' : '我的任务'}</span>
                   <strong>
@@ -394,13 +394,6 @@ export default function Workspace() {
                     <small>项</small>
                   </strong>
                   <small>{teacher ? '任务正在进行中' : '可在我的提交中查看'}</small>
-                </div>
-                <div className="stat accent">
-                  <span>今日工作提示</span>
-                  <h3>{teacher ? '让每份信息都有着落' : '每一次填写都很重要'}</h3>
-                  <small>
-                    {teacher ? '查看任务统计，及时跟进未提交同学。' : '请仔细确认信息后提交。'}
-                  </small>
                 </div>
               </div>
               <div className="panel">
