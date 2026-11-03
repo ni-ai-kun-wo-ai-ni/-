@@ -1,5 +1,21 @@
 @import 'tailwindcss';
 
+.deadline-editor {
+  max-width: 100%;
+}
+.deadline-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.deadline-error {
+  display: block;
+  margin-top: 6px;
+  color: #a5503b;
+  font-size: 11px;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;

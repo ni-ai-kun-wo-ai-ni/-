@@ -205,11 +205,11 @@ async function handle(req: NextRequest, ctx: Context) {
         if (new Date(deadline) <= new Date()) throw new HttpError(400, '截止时间必须晚于现在');
         const old = await accessibleTask(user, taskId);
         if (old.status === 'CLOSED') throw new HttpError(400, '手动结束的任务不能更改截止时间');
-        await db.collectionTask.update({
+        const updated = await db.collectionTask.update({
           where: { id: taskId },
           data: { deadline: new Date(deadline) },
         });
-        return json({ ok: true });
+        return json({ deadline: updated.deadline, displayStatus: taskStatus(updated) });
       }
       if ((action === 'report' || action === 'export') && !write) {
         const report = await taskReport(user, taskId, req.nextUrl.searchParams.get('classId'));

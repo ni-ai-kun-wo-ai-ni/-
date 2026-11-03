@@ -12,6 +12,7 @@ import TaskBuilder from './task-builder';
 import StudentForm from './student-form';
 import ReportView from './report-view';
 import StudentManagement from './student-management';
+import DeadlineEditor from './deadline-editor';
 const labels: Record<string, string> = {
   home: '工作台',
   tasks: '任务管理',
@@ -221,23 +222,24 @@ export default function Workspace() {
                   </button>
                 )}
                 {teacher && t.status !== 'CLOSED' && (
-                  <label className="deadline-edit">
-                    调整截止
-                    <input
-                      aria-label={`调整${t.title}截止时间`}
-                      type="datetime-local"
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (v)
-                          void perform(async () => {
-                            await api(`tasks/${t.id}/deadline`, {
-                              deadline: new Date(v).toISOString(),
-                            });
-                            await refresh();
-                          });
-                      }}
-                    />
-                  </label>
+                  <DeadlineEditor
+                    key={`${t.id}-${t.deadline}`}
+                    task={t}
+                    disabled={busy}
+                    onSaved={(result) => {
+                      setData((current) =>
+                        current
+                          ? {
+                              ...current,
+                              tasks: current.tasks.map((task) =>
+                                task.id === t.id ? { ...task, ...result } : task,
+                              ),
+                            }
+                          : current,
+                      );
+                      setNotice('截止时间已更新');
+                    }}
+                  />
                 )}
               </>
             ) : (
