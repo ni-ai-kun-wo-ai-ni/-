@@ -2,6 +2,7 @@
 import { useState, useRef } from 'react';
 import { api, type Bootstrap, type Person } from '@/lib/types';
 import TransferStudentDialog from './transfer-student-dialog';
+import StudentIdentityDialog from './student-identity-dialog';
 
 export default function StudentManagement({
   data,
@@ -19,6 +20,7 @@ export default function StudentManagement({
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<Person | null>(null);
   const [transferring, setTransferring] = useState<Person | null>(null);
+  const [settingIdentity, setSettingIdentity] = useState<Person | null>(null);
   const [confirmUsername, setConfirmUsername] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -36,6 +38,7 @@ export default function StudentManagement({
     setChosenGrade(gradeFilter || data.grades[0]?.id || '');
     setDeleting(null);
     setTransferring(null);
+    setSettingIdentity(null);
     setAdding(true);
   };
 
@@ -93,7 +96,22 @@ export default function StudentManagement({
                       className="text-button"
                       disabled={busy}
                       onClick={() => {
+                        setSettingIdentity(s);
+                        setTransferring(null);
+                        setAdding(false);
+                        setDeleting(null);
+                        setError('');
+                        setNotice('');
+                      }}
+                    >
+                      设置身份
+                    </button>
+                    <button
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() => {
                         setTransferring(s);
+                        setSettingIdentity(null);
                         setAdding(false);
                         setDeleting(null);
                         setError('');
@@ -112,6 +130,7 @@ export default function StudentManagement({
                         setNotice('');
                         setAdding(false);
                         setTransferring(null);
+                        setSettingIdentity(null);
                       }}
                     >
                       删除账号
@@ -128,6 +147,22 @@ export default function StudentManagement({
           </table>
         </div>
       </div>
+      {settingIdentity && (
+        <StudentIdentityDialog
+          key={settingIdentity.id}
+          student={settingIdentity}
+          onCancel={() => setSettingIdentity(null)}
+          onSaved={async (updated) => {
+            setSettingIdentity(null);
+            setNotice(`${updated.name} 已设为${updated.isClassOfficer ? '班干部' : '普通学生'}。`);
+            try {
+              await refresh();
+            } catch {
+              setNotice('身份已更新，但刷新列表失败，请刷新页面查看。');
+            }
+          }}
+        />
+      )}
       {transferring && (
         <TransferStudentDialog
           key={transferring.id}

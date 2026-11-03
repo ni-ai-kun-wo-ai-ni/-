@@ -102,3 +102,27 @@ export async function transferStudent(actor: User, id: string, raw: unknown) {
     });
   });
 }
+
+export async function setStudentIdentity(actor: User, id: string, raw: unknown) {
+  teacherOnly(actor);
+  const input = z
+    .object({ isClassOfficer: z.boolean(), fromClassId: z.string().nullable() })
+    .strict()
+    .parse(raw);
+  return db.$transaction(async (tx) => {
+    const student = await tx.user.findUnique({ where: { id } });
+    if (!student) throw new HttpError(404, '学生账号不存在');
+    if (student.role !== 'STUDENT')
+      throw new HttpError(403, '只能修改学生或班干部身份，不能修改教师');
+    if (student.classId !== input.fromClassId)
+      throw new HttpError(409, '学生所属班级已变化，请刷新后重新设置身份');
+    if (input.isClassOfficer && !student.classId)
+      throw new HttpError(400, '请先为学生分配班级，再设为班干部');
+    // 班干部始终属于 STUDENT，仅修改干部标记。Session 下次请求会重新读取身份。
+    return tx.user.update({
+      where: { id },
+      data: { isClassOfficer: input.isClassOfficer },
+      select: publicUser,
+    });
+  });
+}
