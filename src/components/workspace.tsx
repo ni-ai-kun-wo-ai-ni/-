@@ -87,25 +87,10 @@ export default function Workspace() {
               <br />
               年级事务更轻松。
             </h1>
-            <p>
-              从任务发布到班级统计，
-              <br />
-              为师生连接每一个清晰的步骤。
-            </p>
-            <div className="login-steps">
-              <span>01 发布任务</span>
-              <i>→</i>
-              <span>02 学生填写</span>
-              <i>→</i>
-              <span>03 自动统计</span>
-            </div>
           </div>
-          <small>本地实验版 · 数据保存在你的电脑</small>
         </section>
         <section className="login-form">
-          <div className="eyebrow">WELCOME BACK</div>
           <h2>登录你的工作空间</h2>
-          <p className="muted">使用管理员分配的账号，继续今天的年级事务。</p>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -142,7 +127,6 @@ export default function Workspace() {
           <div className="demo-box">
             请向管理员获取账号与密码。教师、班干部和学生使用同一入口登录。
           </div>
-          <p className="login-note">仅供学习与小规模实验，测试人物均为虚构。</p>
         </section>
       </main>
     );
@@ -276,14 +260,6 @@ export default function Workspace() {
             </button>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <div className="local-dot">本地 SQLite 数据库</div>
-          <small>
-            学习实验版 v1.0
-            <br />
-            让信息收集更简单
-          </small>
-        </div>
       </aside>
       <div className="workspace">
         <header className="topbar">
@@ -313,7 +289,6 @@ export default function Workspace() {
         <main className="content">
           <div className="page-heading">
             <div>
-              <div className="eyebrow">{teacher ? 'GRADE MANAGEMENT' : 'MY CAMPUS WORKSPACE'}</div>
               <h1>{view === 'home' ? `你好，${data.user.name}` : labels[view]}</h1>
               <p>
                 {view === 'home'
@@ -524,9 +499,7 @@ export default function Workspace() {
               <ReportView report={report} filterClass={filterClass} selectClass={setFilterClass} />
             </>
           )}
-          <footer>
-            青禾 · 年级信息收集与统计 <span>本地学习实验版 / 所有演示数据均为虚构</span>
-          </footer>
+          <footer>青禾 · 年级信息收集与统计</footer>
         </main>
       </div>
     </div>

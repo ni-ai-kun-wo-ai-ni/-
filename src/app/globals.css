@@ -228,25 +228,6 @@ small {
 .sidebar nav small {
   margin-left: auto;
 }
-.sidebar-bottom {
-  margin-top: auto;
-  padding: 24px 12px 0;
-  color: #9ca79f;
-  line-height: 1.9;
-}
-.local-dot {
-  font-size: 11px;
-  margin-bottom: 12px;
-}
-.local-dot:before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #47947c;
-  margin-right: 8px;
-}
 .workspace {
   margin-left: 230px;
   flex: 1;
@@ -807,9 +788,11 @@ footer {
   color: #e0e9dd;
   pointer-events: none;
 }
-.login-brand > div,
-.login-brand > small {
+.login-brand > div {
   z-index: 1;
+}
+.login-brand > div:nth-child(2) {
+  margin-block: auto;
 }
 .login-brand h1 {
   font-size: 42px;
@@ -817,32 +800,6 @@ footer {
   margin: 25px 0;
   color: #275a40;
   font-weight: 500;
-}
-.login-brand p {
-  color: #849583;
-  font-size: 14px;
-  line-height: 2;
-}
-.login-brand > small {
-  font-size: 11px;
-  color: #97a28f;
-}
-.login-steps {
-  display: flex;
-  gap: 15px;
-  align-items: center;
-  font-size: 10px;
-  color: #6b886e;
-  margin-top: 45px;
-}
-.login-steps span {
-  background: #f5f8f2;
-  border: 1px solid #dce5d8;
-  padding: 10px;
-  border-radius: 5px;
-}
-.login-steps i {
-  font-style: normal;
 }
 .login-form {
   width: 100%;
@@ -852,11 +809,7 @@ footer {
 }
 .login-form h2 {
   font-size: 26px;
-  margin-bottom: 12px;
-}
-.login-form > p {
-  font-size: 12px;
-  margin-bottom: 35px;
+  margin-bottom: 28px;
 }
 .login-form label {
   font-size: 12px;
@@ -885,12 +838,6 @@ footer {
 }
 .demo-box code {
   color: #427257;
-}
-.login-note {
-  font-size: 10px !important;
-  color: #aab2a8;
-  text-align: center;
-  margin: 22px 0 !important;
 }
 .loading {
   min-height: 100vh;
@@ -933,9 +880,6 @@ footer {
   .login-brand h1 {
     font-size: 33px;
   }
-  .login-steps {
-    gap: 6px;
-  }
 }
 @media (max-width: 720px) {
   .sidebar {
@@ -949,8 +893,7 @@ footer {
     font-size: 19px;
   }
   .sidebar .brand small,
-  .sidebar-label,
-  .sidebar-bottom {
+  .sidebar-label {
     display: none;
   }
   .brand-icon {
@@ -1086,8 +1029,7 @@ footer {
     min-height: auto;
     padding: 25px;
   }
-  .login-brand > div:nth-child(2),
-  .login-brand > small {
+  .login-brand > div:nth-child(2) {
     display: none;
   }
   .login-brand .brand small {
