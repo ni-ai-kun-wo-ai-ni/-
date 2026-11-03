@@ -16,6 +16,7 @@ import { accessibleTask, isOpen, publicUser, taskReport, taskStatus } from '@/li
 import { taskSchema, validateAnswers } from '@/lib/validation';
 import { createStudent, deleteStudent, transferStudent, setStudentIdentity } from '@/lib/students';
 import { completeInitialPassword } from '@/lib/initial-password';
+import { createGrade, createClass } from '@/lib/organization';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ path: string[] }> };
@@ -129,6 +130,14 @@ async function handle(req: NextRequest, ctx: Context) {
         grades,
         students,
       });
+    }
+    if (key === 'grades' && write) {
+      teacherOnly(user);
+      return json(await createGrade(user, await req.json()));
+    }
+    if (key === 'classes' && write) {
+      teacherOnly(user);
+      return json(await createClass(user, await req.json()));
     }
     if (key === 'students' && write) {
       teacherOnly(user);

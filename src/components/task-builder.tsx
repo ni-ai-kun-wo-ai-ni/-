@@ -13,9 +13,17 @@ const types: Record<string, string> = {
 };
 type DraftField = { label: string; type: string; required: boolean; optionsText: string };
 const blank = (): DraftField => ({ label: '', type: 'TEXT', required: true, optionsText: '' });
-export default function TaskBuilder({ data, done }: { data: Bootstrap; done: () => void }) {
+export default function TaskBuilder({
+  data,
+  done,
+  initialGradeId,
+}: {
+  data: Bootstrap;
+  done: () => void;
+  initialGradeId?: string;
+}) {
   const [fields, setFields] = useState<DraftField[]>([blank()]);
-  const [gradeId, setGrade] = useState(data.grades[0]?.id || '');
+  const [gradeId, setGrade] = useState(initialGradeId || data.grades[0]?.id || '');
   const [specific, setSpecific] = useState(false);
   const [targets, setTargets] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);

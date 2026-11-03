@@ -15,6 +15,7 @@ import StudentManagement from './student-management';
 import DeadlineEditor from './deadline-editor';
 import DeleteTaskDialog from './delete-task-dialog';
 import InitialPasswordDialog from './initial-password-dialog';
+import OrganizationManagement from './organization-management';
 const labels: Record<string, string> = {
   home: '工作台',
   tasks: '任务管理',
@@ -474,42 +475,22 @@ export default function Workspace() {
             />
           )}
           {view === 'classes' && teacher && (
-            <div className="class-grid">
-              {data.grades
-                .filter((g) => !gradeFilter || g.id === gradeFilter)
-                .flatMap((g) =>
-                  g.classes.map((c) => (
-                    <div key={c.id} className="panel class-card">
-                      <div className="eyebrow">{g.name}</div>
-                      <h2>{c.name}</h2>
-                      <strong>
-                        {c._count.students}
-                        <small> 位同学</small>
-                      </strong>
-                      <p className="muted">
-                        班干部：
-                        {data.students
-                          .filter((s) => s.classId === c.id && s.isClassOfficer)
-                          .map((s) => s.name)
-                          .join('、')}
-                      </p>
-                      <button
-                        className="secondary"
-                        onClick={() => {
-                          navigate('students');
-                          setSearch(c.name);
-                        }}
-                      >
-                        查看学生名册 →
-                      </button>
-                    </div>
-                  )),
-                )}
-            </div>
+            <OrganizationManagement
+              data={data}
+              gradeFilter={gradeFilter}
+              selectGrade={setGradeFilter}
+              refresh={refresh}
+              viewStudents={(gradeId, className) => {
+                setGradeFilter(gradeId);
+                navigate('students');
+                setSearch(className);
+              }}
+            />
           )}
           {view === 'create' && teacher && (
             <TaskBuilder
               data={data}
+              initialGradeId={gradeFilter}
               done={() =>
                 void perform(async () => {
                   await refresh();
