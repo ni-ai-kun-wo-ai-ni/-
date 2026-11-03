@@ -103,7 +103,7 @@ export default function Workspace() {
         <section className="login-form">
           <div className="eyebrow">WELCOME BACK</div>
           <h2>登录你的工作空间</h2>
-          <p className="muted">使用本地账号，继续今天的年级事务。</p>
+          <p className="muted">使用管理员分配的账号，继续今天的年级事务。</p>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -138,15 +138,7 @@ export default function Workspace() {
             </button>
           </form>
           <div className="demo-box">
-            <b>体验账号</b>
-            <p>
-              教师 teacher001 · 班干部 monitor001
-              <br />
-              学生 student001
-            </p>
-            <p>
-              统一密码 <code>Demo2026!</code>
-            </p>
+            请向管理员获取账号与密码。教师、班干部和学生使用同一入口登录。
           </div>
           <p className="login-note">仅供学习与小规模实验，测试人物均为虚构。</p>
         </section>

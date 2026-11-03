@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { db } from './db';
+import { isAllowedOrigin } from './request-origin';
 export class HttpError extends Error {
   constructor(
     public status: number,
@@ -39,14 +40,6 @@ export function teacherOnly(user: { role: string }) {
 }
 // 对写操作验证同源，Cookie 不接受来自其他站点的请求。
 export function checkOrigin(request: Request) {
-  const origin = request.headers.get('origin');
-  const host = request.headers.get('host');
-  // Next.js 内部可能把 127.0.0.1 归一化为 localhost，因此与浏览器实际 Host 比较。
-  if (
-    !origin ||
-    !host ||
-    new URL(origin).host !== host ||
-    new URL(origin).protocol !== new URL(request.url).protocol
-  )
+  if (!isAllowedOrigin(request, process.env.PUBLIC_ORIGIN))
     throw new HttpError(403, '请求来源不合法');
 }

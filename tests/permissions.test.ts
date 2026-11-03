@@ -2,10 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PrismaClient } from '@prisma/client';
 import ExcelJS from 'exceljs';
+import { readFileSync } from 'node:fs';
 import type { Bootstrap, Report, Task, Submission } from '../src/lib/types';
 const base = process.env.TEST_BASE_URL || 'http://127.0.0.1:3000';
 const db = new PrismaClient();
-async function request(path: string, cookie = '', body?: unknown, origin = base) {
+// 公网模式使用本机私有密码文件，不把实际账号密码写进测试源码。
+const accountPasswords: Record<string, string> = process.env.TEST_ACCOUNTS_FILE
+  ? JSON.parse(readFileSync(process.env.TEST_ACCOUNTS_FILE, 'utf8'))
+  : {};
+async function request(
+  path: string,
+  cookie = '',
+  body?: unknown,
+  origin = process.env.TEST_ORIGIN || base,
+) {
   return fetch(`${base}/api/${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: { cookie, origin, 'Content-Type': 'application/json' },
@@ -13,7 +23,10 @@ async function request(path: string, cookie = '', body?: unknown, origin = base)
   });
 }
 async function login(username: string) {
-  const response = await request('login', '', { username, password: 'Demo2026!' });
+  const response = await request('login', '', {
+    username,
+    password: accountPasswords[username] || 'Demo2026!',
+  });
   assert.equal(response.status, 200);
   return response.headers.get('set-cookie')!.split(';')[0];
 }

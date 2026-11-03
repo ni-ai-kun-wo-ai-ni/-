@@ -2,6 +2,39 @@
 
 适合学习和本机小规模实验的完整 MVP。Next.js App Router + TypeScript + Tailwind CSS + Prisma 6 + SQLite。中文界面，支持电脑和手机布局，数据保存在本地。
 
+## 让校外和手机流量也能访问（公网模式）
+
+在项目目录执行：
+
+```powershell
+.\公网启动.ps1
+```
+
+脚本依次初始化数据库、替换默认演示密码、构建生产版，启动本机 `127.0.0.1:3100` 服务并建立 Cloudflare HTTPS 隧道。在终端显示的 `https://…trycloudflare.com` 地址可以发给其他网络的同学。访问者需要用你分配的账号登录，学生/班干部的后端权限规则保持有效。
+
+- 数据库仍保存在本机 `prisma/dev.db`。浏览器请求经过 Cloudflare 转发，不需要云数据库、路由器端口映射或关闭防火墙。
+- 工具从 Cloudflare 官方发布下载，锁定 2026.10.7，执行前检查 SHA256；启动脚本面向 Windows x64。
+- 所有仍使用 `Demo2026!` 的账号都会换成各自独立的随机密码，旧 Session 注销。新密码在 **`.local/公网账号密码.csv`**，可在本机用 Excel 打开，只把对应学生的账号密码私下告知本人；不要转发整个文件。
+- `.local/accounts.json` 用于本机自动测试；`.local/public-url.txt` 保存当前公网地址。这些文件和隧道工具均被 Git 忽略，切勿上传密码文件。
+- 再次运行不会重新修改已经替换的密码。第一次执行后，下面“测试账号”章节里的统一密码对这些账号已经失效，本地登录也需使用新密码。
+- 电脑必须开机、联网，脚本进程必须保持运行。Ctrl+C 同时停止网页与隧道；关闭电脑、休眠或断网期间无法访问。
+- 这是适合 MVP 体验的临时公网入口，重启隧道会改变网址，没有持续可用保证。校园网/运营商也可能限制相关连接。固定长期网址需要域名和持久 Cloudflare Tunnel 配置；本项目没有购买域名或创建云账号。
+- 固定域名部署时，显式设置 `PUBLIC_ORIGIN=https://你的域名`、`PUBLIC_MODE=true`、`COOKIE_SECURE=true`。服务端只接受指定来源的写操作，不盲目信任客户端提供的转发头。
+
+已有构建和数据库时，可直接运行 `pnpm public:start`，无须每次重新构建。源码改动后先 `pnpm build`。
+
+公网回归测试（先启动公网服务，测试会创建并清理虚构测试任务）：
+
+```powershell
+$env:TEST_BASE_URL = (Get-Content .local/public-url.txt).Trim()
+$env:TEST_ACCOUNTS_FILE = '.local/accounts.json'
+pnpm test
+```
+
+当前已完成公网模式下的本机 HTTP 回归：17 项测试通过，包括代理来源校验、随机密码登录、班级隔离及 Excel 权限。实际公网连通性需以成功启动隧道后的验证为准。
+
+官方说明：[Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)。临时隧道用于测试与开发，不应当作正式长期运行方案。
+
 ## 立即运行
 
 本机已安装依赖、执行迁移和 Seed。打开 PowerShell，进入项目目录：

@@ -11,7 +11,9 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:setup": "prisma generate && prisma migrate deploy && tsx prisma/seed.ts",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "public:prepare": "tsx scripts/prepare-public.ts",
+    "public:start": "node scripts/public-server.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.0",

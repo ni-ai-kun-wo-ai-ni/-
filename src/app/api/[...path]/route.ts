@@ -38,7 +38,11 @@ async function handle(req: NextRequest, ctx: Context) {
       if (attempt && attempt.until > Date.now() && attempt.count >= 10)
         throw new HttpError(429, '尝试次数过多，请 15 分钟后重试');
       const user = await db.user.findUnique({ where: { username: input.username } });
-      if (!user || !(await compare(input.password, user.passwordHash))) {
+      if (
+        !user ||
+        (process.env.PUBLIC_MODE === 'true' && input.password === 'Demo2026!') ||
+        !(await compare(input.password, user.passwordHash))
+      ) {
         const old = attempt && attempt.until > Date.now() ? attempt.count : 0;
         if (attempts.size > 5000) attempts.clear();
         attempts.set(input.username, { count: old + 1, until: Date.now() + 900000 });
