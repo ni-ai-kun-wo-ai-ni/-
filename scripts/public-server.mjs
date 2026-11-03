@@ -1,7 +1,7 @@
 // 一个进程管理本地 Next.js 与公网隧道；不开放路由器端口，不修改 Windows 防火墙。
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rmSync } from 'node:fs';
@@ -17,6 +17,9 @@ const download =
   'https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-windows-amd64.exe';
 const port = Number(process.env.PUBLIC_PORT || 3100);
 const stateFile = resolve(local, 'public-server.json');
+const stopRequestFile = resolve(local, 'stop-request.json');
+const runId = randomBytes(16).toString('hex');
+let stopWatcher;
 let stateWritten = false;
 let app;
 let tunnel;
@@ -24,6 +27,7 @@ let stopping = false;
 function stop(code = 0) {
   if (stopping) return;
   stopping = true;
+  clearInterval(stopWatcher);
   app?.kill();
   tunnel?.kill();
   if (stateWritten) {
@@ -148,9 +152,24 @@ async function main() {
   await writeFile(resolve(local, 'public-url.txt'), origin + '\n');
   await writeFile(
     stateFile,
-    JSON.stringify({ pid: process.pid, port, url: origin, root: resolve(root) }),
+    JSON.stringify({ pid: process.pid, port, url: origin, root: resolve(root), runId }),
   );
   stateWritten = true;
+  // 仅接收本机项目目录里的停止请求；随机运行标识防止旧请求误停下一次启动。
+  // 不提供公网停止 API，也不按进程名批量结束其他程序。
+  stopWatcher = setInterval(async () => {
+    try {
+      const request = JSON.parse(await readFile(stopRequestFile, 'utf8'));
+      if (request.pid === process.pid && request.runId === runId) {
+        rmSync(stopRequestFile, { force: true });
+        console.log('收到本机停止请求，正在关闭网站和公网连接。');
+        stop();
+      }
+    } catch {
+      /* 没有停止请求时保持运行。 */
+    }
+  }, 500);
+  stopWatcher.unref();
   console.log(
     `\n公网访问地址：${origin}\n账号密码文件：${resolve(local, '公网账号密码.csv')}\n电脑需持续开机联网。按 Ctrl+C 同时停止网页和隧道。重启后公网地址会变化。\n`,
   );

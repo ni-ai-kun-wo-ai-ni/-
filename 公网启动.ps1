@@ -44,6 +44,7 @@ try {
   $existing = Get-RunningWebsite
   if ($existing) {
     Write-Host "网站已在运行，无需重复启动：$existing" -ForegroundColor Green
+    Write-Host '本窗口只负责打开网页；如需停止网站，请双击桌面“年级工具-停止”。'
     Open-Website $existing
     return
   }
@@ -56,7 +57,7 @@ try {
   & $nodeExe -e "const net=require('node:net');const s=net.createServer();s.once('error',()=>process.exit(1));s.listen(Number(process.env.PUBLIC_PORT),'127.0.0.1',()=>s.close());"
   if ($LASTEXITCODE -ne 0) { throw '网站端口已占用，请先在原启动窗口按 Ctrl+C 停止服务后再试。' }
   Write-Host '正在启动年级工具，请稍候，完成后自动打开网页。' -ForegroundColor Green
-  Write-Host '这个窗口需保持运行，可以最小化。按 Ctrl+C 停止网站和公网连接。'
+  Write-Host '这个窗口需保持运行，可以最小化。按 Ctrl+C 或双击桌面“年级工具-停止”关闭网站。'
   if (!(Test-Path -LiteralPath '.env')) { Copy-Item -LiteralPath '.env.example' -Destination '.env' }
   if (!(Test-Path -LiteralPath 'node_modules/next')) { Invoke-PublicPackageManager -Arguments @('install', '--frozen-lockfile') }
   Invoke-PublicPackageManager -Arguments @('run', 'db:setup')
