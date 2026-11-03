@@ -11,6 +11,7 @@ import {
 import TaskBuilder from './task-builder';
 import StudentForm from './student-form';
 import ReportView from './report-view';
+import StudentManagement from './student-management';
 const labels: Record<string, string> = {
   home: '工作台',
   tasks: '任务管理',
@@ -441,51 +442,13 @@ export default function Workspace() {
             </div>
           )}
           {view === 'students' && teacher && (
-            <div className="panel">
-              <div className="section-title">
-                <h2>
-                  学生名册 <small className="muted">{scopedStudents.length} 人</small>
-                </h2>
-                <input
-                  className="search"
-                  placeholder="搜索姓名、学号或班级…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>姓名</th>
-                      <th>学号</th>
-                      <th>班级</th>
-                      <th>身份</th>
-                      <th>登录账号</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {scopedStudents
-                      .filter((s) => `${s.name}${s.studentNumber}${s.class?.name}`.includes(search))
-                      .map((s) => (
-                        <tr key={s.id}>
-                          <td>
-                            <b>{s.name}</b>
-                          </td>
-                          <td>{s.studentNumber}</td>
-                          <td>{s.class?.name}</td>
-                          <td>
-                            <span className={`badge ${s.isClassOfficer ? 'open' : 'draft'}`}>
-                              {s.isClassOfficer ? '班干部' : '学生'}
-                            </span>
-                          </td>
-                          <td>{s.username}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <StudentManagement
+              data={data}
+              gradeFilter={gradeFilter}
+              search={search}
+              setSearch={setSearch}
+              refresh={refresh}
+            />
           )}
           {view === 'classes' && teacher && (
             <div className="class-grid">

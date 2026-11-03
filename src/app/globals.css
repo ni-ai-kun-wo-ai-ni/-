@@ -1,4 +1,42 @@
 @import 'tailwindcss';
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: #163c3466;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.modal-card {
+  background: white;
+  border-radius: 12px;
+  padding: 28px;
+  width: min(100%, 600px);
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  box-shadow: 0 16px 60px #163c3433;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+.student-fields {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+}
+.danger-button {
+  background: #a94436;
+}
+.student-toolbar {
+  flex-wrap: wrap;
+}
 :root {
   --green: #176b5b;
   --dark: #163c34;
