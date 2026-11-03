@@ -13,6 +13,7 @@ import StudentForm from './student-form';
 import ReportView from './report-view';
 import StudentManagement from './student-management';
 import DeadlineEditor from './deadline-editor';
+import DeleteTaskDialog from './delete-task-dialog';
 const labels: Record<string, string> = {
   home: '工作台',
   tasks: '任务管理',
@@ -36,6 +37,7 @@ export default function Workspace() {
   const [filterClass, setFilterClass] = useState('');
   const [search, setSearch] = useState('');
   const [gradeFilter, setGradeFilter] = useState('');
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   async function refresh() {
     const d = await api<Bootstrap>('bootstrap');
     setData(d);
@@ -225,6 +227,15 @@ export default function Workspace() {
                     }}
                   />
                 )}
+                {teacher && (
+                  <button
+                    className="text-button danger"
+                    disabled={busy}
+                    onClick={() => setTaskToDelete(t)}
+                  >
+                    删除任务
+                  </button>
+                )}
               </>
             ) : (
               <button
@@ -246,6 +257,23 @@ export default function Workspace() {
   );
   return (
     <div className="app-shell">
+      {taskToDelete && teacher && (
+        <DeleteTaskDialog
+          key={taskToDelete.id}
+          task={taskToDelete}
+          onCancel={() => setTaskToDelete(null)}
+          onDeleted={() => {
+            setData((current) =>
+              current
+                ? { ...current, tasks: current.tasks.filter((task) => task.id !== taskToDelete.id) }
+                : current,
+            );
+            setTaskToDelete(null);
+            setNotice('任务及相关提交已删除');
+            setError('');
+          }}
+        />
+      )}
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-icon">禾</span>青禾<small>年级协作空间</small>

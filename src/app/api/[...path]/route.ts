@@ -173,6 +173,23 @@ async function handle(req: NextRequest, ctx: Context) {
     if (path[0] === 'tasks' && path[1]) {
       const taskId = path[1];
       const action = path[2];
+      if (action === 'delete' && path.length === 3 && write) {
+        teacherOnly(user);
+        const { confirmTitle } = z
+          .object({ confirmTitle: z.string().min(1).max(100) })
+          .strict()
+          .parse(await req.json());
+        // 先删除提交（答案级联删除），再删除任务（字段和填写对象级联删除）。
+        // 同一事务保证任一步失败时，任务与历史答案都不会被部分删除。
+        await db.$transaction(async (tx) => {
+          const task = await tx.collectionTask.findUnique({ where: { id: taskId } });
+          if (!task) throw new HttpError(404, '任务不存在或已被删除');
+          if (task.title !== confirmTitle) throw new HttpError(400, '任务名称不匹配，请重新核对');
+          await tx.submission.deleteMany({ where: { taskId } });
+          await tx.collectionTask.delete({ where: { id: taskId } });
+        });
+        return json({ ok: true });
+      }
       if (action === 'status' && write) {
         teacherOnly(user);
         const input = z
