@@ -1,21 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { api, type Task } from '@/lib/types';
-
-// 与任务列表的北京时间一致，避免 ISO 的 UTC 时间直接截取后相差 8 小时。
-function inputValue(deadline: string) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(new Date(deadline));
-  const part = (name: string) => parts.find((p) => p.type === name)!.value;
-  return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`;
-}
+import { beijingInputToIso, toBeijingInput } from '@/lib/beijing-time';
 type SavedDeadline = { deadline: string; displayStatus: string };
 export default function DeadlineEditor({
   task,
@@ -26,7 +12,7 @@ export default function DeadlineEditor({
   disabled: boolean;
   onSaved: (result: SavedDeadline) => void;
 }) {
-  const saved = inputValue(task.deadline);
+  const saved = toBeijingInput(task.deadline);
   const [value, setValue] = useState(saved);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -41,7 +27,7 @@ export default function DeadlineEditor({
         setError('');
         try {
           const result = await api<SavedDeadline>(`tasks/${task.id}/deadline`, {
-            deadline: new Date(`${value}:00+08:00`).toISOString(),
+            deadline: beijingInputToIso(value),
           });
           onSaved(result);
         } catch (e) {

@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { api, type Bootstrap } from '@/lib/types';
+import { beijingInputToIso, defaultDeadline } from '@/lib/beijing-time';
 const types: Record<string, string> = {
   TEXT: '单行文本',
   TEXTAREA: '多行文本',
@@ -19,6 +20,7 @@ export default function TaskBuilder({ data, done }: { data: Bootstrap; done: () 
   const [targets, setTargets] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [deadline, setDeadline] = useState(defaultDeadline);
   const update = (index: number, value: Partial<DraftField>) =>
     setFields(fields.map((f, i) => (i === index ? { ...f, ...value } : f)));
   return (
@@ -33,7 +35,7 @@ export default function TaskBuilder({ data, done }: { data: Bootstrap; done: () 
             title: form.get('title'),
             description: form.get('description'),
             gradeId,
-            deadline: new Date(String(form.get('deadline'))).toISOString(),
+            deadline: beijingInputToIso(deadline),
             allowEdit: form.get('allowEdit') === 'on',
             officerCanView: form.get('officerCanView') === 'on',
             ...(specific ? { targetIds: targets } : {}),
@@ -93,8 +95,14 @@ export default function TaskBuilder({ data, done }: { data: Bootstrap; done: () 
             </select>
           </label>
           <label>
-            截止时间（电脑本地时区）
-            <input type="datetime-local" name="deadline" required />
+            截止时间（北京时间）
+            <input
+              type="datetime-local"
+              name="deadline"
+              required
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+            />
           </label>
         </div>
         <label className="check">
