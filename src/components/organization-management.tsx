@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { api, type Bootstrap } from '@/lib/types';
+import DeleteOrganizationDialog, { type OrganizationToDelete } from './delete-organization-dialog';
 
 export default function OrganizationManagement({
   data,
@@ -20,6 +21,7 @@ export default function OrganizationManagement({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [deleting, setDeleting] = useState<OrganizationToDelete | null>(null);
   const grades = data.grades.filter((g) => !gradeFilter || g.id === gradeFilter);
   function openClass(gradeId = gradeFilter || data.grades[0]?.id || '') {
     setMode('class');
@@ -62,6 +64,16 @@ export default function OrganizationManagement({
             <button className="text-button" onClick={() => openClass(g.id)}>
               ＋ 添加班级
             </button>
+            <button
+              className="text-button danger"
+              disabled={busy}
+              onClick={() => {
+                setNotice('');
+                setDeleting({ kind: 'grade', id: g.id, name: g.name });
+              }}
+            >
+              删除年级
+            </button>
           </div>
           {!g.classes.length ? (
             <div className="panel empty">这个年级还没有班级，点击“添加班级”开始创建。</div>
@@ -84,12 +96,42 @@ export default function OrganizationManagement({
                   <button className="secondary" onClick={() => viewStudents(g.id, c.name)}>
                     查看学生名册 →
                   </button>
+                  <button
+                    className="text-button danger"
+                    disabled={busy}
+                    onClick={() => {
+                      setNotice('');
+                      setDeleting({ kind: 'class', id: c.id, name: c.name });
+                    }}
+                  >
+                    删除班级
+                  </button>
                 </div>
               ))}
             </div>
           )}
         </section>
       ))}
+      {deleting && (
+        <DeleteOrganizationDialog
+          key={`${deleting.kind}-${deleting.id}`}
+          target={deleting}
+          onCancel={() => setDeleting(null)}
+          onDeleted={async () => {
+            if (deleting.kind === 'grade' && gradeFilter === deleting.id) selectGrade('');
+            setNotice(`${deleting.name} 已删除。`);
+            setDeleting(null);
+            setBusy(true);
+            try {
+              await refresh();
+            } catch {
+              setNotice('删除已成功，但刷新列表失败，请刷新页面查看。');
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+      )}
       {mode && (
         <div className="modal-overlay">
           <section
