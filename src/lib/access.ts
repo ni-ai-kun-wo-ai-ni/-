@@ -9,6 +9,7 @@ export const publicUser = {
   classId: true,
   role: true,
   isClassOfficer: true,
+  mustChangePassword: true,
   class: { select: { id: true, name: true, gradeId: true } },
 } as const;
 export const isOpen = (task: { status: string; deadline: Date }) =>

@@ -43,11 +43,9 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
     const token = randomUUID().replaceAll('-', '').slice(0, 16);
     const input = {
       name: '账号管理测试同学',
-      username: `test_${token}`,
       studentNumber: `test_${token}`,
       classId: bootstrap.grades[0].classes[0].id,
       isClassOfficer: true,
-      password: 'NewStudent2026!Test',
     };
     await t.test('未登录、普通学生、班干部均不能创建账号', async () => {
       for (const [cookie, status] of [
@@ -57,7 +55,7 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
       ] as const)
         assert.equal((await request('students', cookie, input)).status, status);
     });
-    await t.test('拒绝无效字段、弱密码、伪造教师身份和不存在的班级', async () => {
+    await t.test('拒绝无效字段、自定义账号密码、伪造教师身份和不存在的班级', async () => {
       for (const payload of [
         { ...input, name: '  ' },
         { ...input, username: '有空 格' },
@@ -84,24 +82,23 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
       assert.equal(person.classId, input.classId);
       assert.ok(!JSON.stringify(person).includes('password'));
       const stored = await db.user.findUniqueOrThrow({ where: { id: person.id } });
-      assert.notEqual(stored.passwordHash, input.password);
-      assert.ok(await compare(input.password, stored.passwordHash));
+      assert.notEqual(stored.passwordHash, '123456');
+      assert.ok(await compare('123456', stored.passwordHash));
+      assert.equal(stored.username, input.studentNumber);
+      assert.equal(stored.mustChangePassword, true);
       const home: Bootstrap = await (await request('bootstrap', teacher)).json();
       assert.ok(home.students.some((s) => s.id === person.id));
     });
     const id = createdIds[0];
     assert.ok(id);
     await t.test('重复账号和学号返回明确错误，不覆盖已有账号', async () => {
+      assert.equal((await request('students', teacher, input)).status, 409);
       assert.equal(
-        (await request('students', teacher, { ...input, studentNumber: `other_${token}` })).status,
-        409,
-      );
-      assert.equal(
-        (await request('students', teacher, { ...input, username: `other_${token}` })).status,
+        (await request('students', teacher, { ...input, studentNumber: 'teacher001' })).status,
         409,
       );
     });
-    const cookie = await login(input.username, input.password);
+    const cookie = await login(input.studentNumber, '123456');
     await t.test('新增学生不自动加入历史任务，普通身份不能提权', async () => {
       const home: Bootstrap = await (await request('bootstrap', cookie)).json();
       assert.equal(home.tasks.length, 0);
@@ -136,7 +133,8 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
         [cookie, 403],
       ] as const)
         assert.equal(
-          (await request(`students/${id}/delete`, c, { confirmUsername: input.username })).status,
+          (await request(`students/${id}/delete`, c, { confirmUsername: input.studentNumber }))
+            .status,
           status,
         );
       assert.equal(
@@ -156,7 +154,7 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
           await request(
             `students/${id}/delete`,
             teacher,
-            { confirmUsername: input.username },
+            { confirmUsername: input.studentNumber },
             'https://evil.example',
           )
         ).status,
@@ -166,7 +164,7 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
     });
     await t.test('删除清理提交/答案/任务目标/Session，保留任务和其他学生', async () => {
       assert.equal(
-        (await request(`students/${id}/delete`, teacher, { confirmUsername: input.username }))
+        (await request(`students/${id}/delete`, teacher, { confirmUsername: input.studentNumber }))
           .status,
         200,
       );
@@ -179,14 +177,14 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
       assert.equal(await db.taskTarget.count({ where: { taskId: task.id } }), 1);
       assert.equal((await request('bootstrap', cookie)).status, 401);
       assert.equal(
-        (await request('login', '', { username: input.username, password: input.password })).status,
+        (await request('login', '', { username: input.studentNumber, password: '123456' })).status,
         401,
       );
       const report = await (await request(`tasks/${task.id}/report`, teacher)).json();
       assert.equal(report.total, 1);
       assert.equal(report.submitted, 0);
       assert.equal(
-        (await request(`students/${id}/delete`, teacher, { confirmUsername: input.username }))
+        (await request(`students/${id}/delete`, teacher, { confirmUsername: input.studentNumber }))
           .status,
         404,
       );

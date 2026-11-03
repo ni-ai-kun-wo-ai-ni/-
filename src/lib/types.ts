@@ -5,6 +5,7 @@ export type Person = {
   studentNumber: string | null;
   role: string;
   isClassOfficer: boolean;
+  mustChangePassword: boolean;
   classId: string | null;
   class: { id: string; name: string; gradeId: string } | null;
 };

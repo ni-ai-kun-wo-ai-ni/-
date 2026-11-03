@@ -15,6 +15,7 @@ import {
 import { accessibleTask, isOpen, publicUser, taskReport, taskStatus } from '@/lib/access';
 import { taskSchema, validateAnswers } from '@/lib/validation';
 import { createStudent, deleteStudent, transferStudent, setStudentIdentity } from '@/lib/students';
+import { completeInitialPassword } from '@/lib/initial-password';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ path: string[] }> };
@@ -41,6 +42,7 @@ async function handle(req: NextRequest, ctx: Context) {
       const user = await db.user.findUnique({ where: { username: input.username } });
       if (
         !user ||
+        (input.password === '123456' && (!user.mustChangePassword || user.role !== 'STUDENT')) ||
         (process.env.PUBLIC_MODE === 'true' && input.password === 'Demo2026!') ||
         !(await compare(input.password, user.passwordHash))
       ) {
@@ -50,8 +52,8 @@ async function handle(req: NextRequest, ctx: Context) {
         throw new HttpError(401, '账号或密码错误');
       }
       attempts.delete(input.username);
-      await createSession(user.id);
-      return json({ ok: true });
+      await createSession(user.id, user.passwordHash);
+      return json({ ok: true, mustChangePassword: user.mustChangePassword });
     }
     const user = await currentUser();
     if (key === 'logout' && write) {
@@ -60,6 +62,19 @@ async function handle(req: NextRequest, ctx: Context) {
       if (token) await db.session.deleteMany({ where: { id: tokenHash(token) } });
       jar.delete('grade_session');
       return json({ ok: true });
+    }
+    if (key === 'account/initial-password' && write) {
+      if (!user.mustChangePassword) throw new HttpError(409, '当前账号已设置密码');
+      await completeInitialPassword(user.id, await req.json());
+      await createSession(user.id);
+      return json({ ok: true });
+    }
+    if (user.mustChangePassword) {
+      if (key === 'bootstrap' && !write) {
+        const me = await db.user.findUnique({ where: { id: user.id }, select: publicUser });
+        return json({ user: me, tasks: [], officerTasks: [], students: [], grades: [] });
+      }
+      throw new HttpError(403, '请先设置自己的密码，再使用系统');
     }
     if (key === 'bootstrap' && !write) {
       const me = await db.user.findUnique({ where: { id: user.id }, select: publicUser });

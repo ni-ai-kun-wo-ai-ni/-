@@ -14,6 +14,7 @@ import ReportView from './report-view';
 import StudentManagement from './student-management';
 import DeadlineEditor from './deadline-editor';
 import DeleteTaskDialog from './delete-task-dialog';
+import InitialPasswordDialog from './initial-password-dialog';
 const labels: Record<string, string> = {
   home: '工作台',
   tasks: '任务管理',
@@ -105,7 +106,12 @@ export default function Workspace() {
           >
             <label>
               账号
-              <input name="username" autoComplete="username" placeholder="请输入账号" required />
+              <input
+                name="username"
+                autoComplete="username"
+                placeholder="学生请输入学号"
+                required
+              />
             </label>
             <label>
               密码
@@ -131,6 +137,25 @@ export default function Workspace() {
           </div>
         </section>
       </main>
+    );
+  if (data.user.mustChangePassword)
+    return (
+      <InitialPasswordDialog
+        user={data.user}
+        onLogout={() => {
+          setData(null);
+          navigate('home');
+        }}
+        onSaved={async () => {
+          try {
+            await refresh();
+            setNotice('个人密码已设置，请记住新密码');
+          } catch {
+            setData(null);
+            setError('新密码已保存，请使用新密码重新登录');
+          }
+        }}
+      />
     );
   const teacher = data.user.role === 'TEACHER';
   const officer = data.user.isClassOfficer;

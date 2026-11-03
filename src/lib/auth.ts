@@ -22,10 +22,18 @@ export async function currentUser() {
     throw new HttpError(401, '登录已过期，请重新登录');
   return session.user;
 }
-export async function createSession(userId: string) {
+export async function createSession(userId: string, expectedPasswordHash?: string) {
   const token = randomBytes(32).toString('hex');
-  await db.session.create({
-    data: { id: tokenHash(token), userId, expiresAt: new Date(Date.now() + 7 * 86400000) },
+  await db.$transaction(async (tx) => {
+    // 防止旧密码登录与首次改密并发时，在改密完成后又创建一个旧凭据会话。
+    if (
+      expectedPasswordHash &&
+      !(await tx.user.findFirst({ where: { id: userId, passwordHash: expectedPasswordHash } }))
+    )
+      throw new HttpError(401, '密码已变化，请使用新密码登录');
+    await tx.session.create({
+      data: { id: tokenHash(token), userId, expiresAt: new Date(Date.now() + 7 * 86400000) },
+    });
   });
   (await cookies()).set('grade_session', token, {
     httpOnly: true,

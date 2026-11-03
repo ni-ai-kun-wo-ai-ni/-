@@ -26,6 +26,7 @@ export default function StudentManagement({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [chosenGrade, setChosenGrade] = useState('');
+  const [newStudentNumber, setNewStudentNumber] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
   const students = data.students.filter((s) => !gradeFilter || s.class?.gradeId === gradeFilter);
   const visible = students.filter((s) =>
@@ -40,6 +41,7 @@ export default function StudentManagement({
     setTransferring(null);
     setSettingIdentity(null);
     setAdding(true);
+    setNewStudentNumber('');
   };
 
   return (
@@ -90,7 +92,10 @@ export default function StudentManagement({
                       {s.isClassOfficer ? '班干部' : '学生'}
                     </span>
                   </td>
-                  <td>{s.username}</td>
+                  <td>
+                    {s.username}
+                    {s.mustChangePassword && <span className="badge pending">待首次改密</span>}
+                  </td>
                   <td>
                     <button
                       className="text-button"
@@ -193,7 +198,8 @@ export default function StudentManagement({
           >
             <h2 id="add-student-title">添加学生账号</h2>
             <p className="muted">
-              创建后请私下把账号和初始密码告知学生。新学生不会自动加入以前创建的任务。
+              学号即登录账号，初始密码为
+              123456。学生首次登录必须设置自己的密码。新学生不会自动加入以前创建的任务。
             </p>
             <form
               ref={formRef}
@@ -205,16 +211,16 @@ export default function StudentManagement({
                 try {
                   const student = await api<Person>('students', {
                     name: form.get('name'),
-                    username: form.get('username'),
                     studentNumber: form.get('studentNumber'),
                     classId: form.get('classId'),
-                    password: form.get('password'),
                     isClassOfficer: form.get('isClassOfficer') === 'on',
                   });
                   formRef.current?.reset();
                   setAdding(false);
                   setSearch('');
-                  setNotice(`${student.name} 的账号 ${student.username} 已创建。`);
+                  setNotice(
+                    `${student.name} 的账号 ${student.username} 已创建，初始密码为 123456，首次登录需改密。`,
+                  );
                   try {
                     await refresh();
                   } catch {
@@ -241,6 +247,8 @@ export default function StudentManagement({
                       maxLength={32}
                       pattern="[A-Za-z0-9_-]+"
                       autoComplete="off"
+                      value={newStudentNumber}
+                      onChange={(e) => setNewStudentNumber(e.target.value)}
                     />
                   </label>
                 </div>
@@ -272,29 +280,15 @@ export default function StudentManagement({
                 <label>
                   登录账号
                   <input
-                    name="username"
-                    required
-                    minLength={3}
-                    maxLength={40}
-                    pattern="[A-Za-z0-9_.-]+"
+                    readOnly
+                    value={newStudentNumber.trim()}
                     autoComplete="off"
-                    placeholder="3～40位字母、数字、下划线、点或横线"
+                    placeholder="自动使用学号"
                   />
                 </label>
                 <label>
                   初始密码
-                  <input
-                    name="password"
-                    type="password"
-                    required
-                    minLength={10}
-                    maxLength={72}
-                    autoComplete="new-password"
-                    placeholder="至少10位，包含字母和数字"
-                  />
-                  <small className="muted">
-                    密码只在创建时输入，保存后不能查看。请自行妥善记录。
-                  </small>
+                  <input value="123456" readOnly />
                 </label>
                 <label className="check">
                   <input name="isClassOfficer" type="checkbox" />

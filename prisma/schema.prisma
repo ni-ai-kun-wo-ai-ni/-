@@ -23,18 +23,19 @@ model Class {
 }
 
 model User {
-  id             String           @id @default(cuid())
-  username       String           @unique
-  passwordHash   String
-  name           String
-  studentNumber  String?          @unique
-  role           String           @default("STUDENT")
-  isClassOfficer Boolean          @default(false)
-  classId        String?
-  class          Class?           @relation(fields: [classId], references: [id])
-  sessions       Session[]
-  submissions    Submission[]
-  tasks          CollectionTask[]
+  id                 String           @id @default(cuid())
+  username           String           @unique
+  passwordHash       String
+  mustChangePassword Boolean          @default(false)
+  name               String
+  studentNumber      String?          @unique
+  role               String           @default("STUDENT")
+  isClassOfficer     Boolean          @default(false)
+  classId            String?
+  class              Class?           @relation(fields: [classId], references: [id])
+  sessions           Session[]
+  submissions        Submission[]
+  tasks              CollectionTask[]
 }
 
 model Session {
