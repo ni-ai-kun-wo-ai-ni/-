@@ -73,3 +73,32 @@ export async function deleteStudent(actor: User, id: string, raw: unknown) {
     await tx.user.delete({ where: { id } });
   });
 }
+
+export async function transferStudent(actor: User, id: string, raw: unknown) {
+  teacherOnly(actor);
+  const input = z
+    .object({
+      classId: z.string().min(1),
+      fromClassId: z.string().nullable(),
+      isClassOfficer: z.boolean(),
+    })
+    .strict()
+    .parse(raw);
+  return db.$transaction(async (tx) => {
+    const student = await tx.user.findUnique({ where: { id } });
+    if (!student) throw new HttpError(404, '学生账号不存在');
+    if (student.role !== 'STUDENT') throw new HttpError(403, '只能为学生办理转班');
+    if (student.classId !== input.fromClassId)
+      throw new HttpError(409, '该学生所属班级已变化，请刷新后重新操作');
+    if (student.classId === input.classId) throw new HttpError(400, '请选择与当前不同的班级');
+    if (!(await tx.class.findUnique({ where: { id: input.classId } })))
+      throw new HttpError(400, '目标班级不存在');
+    // 只更新组织归属和教师确认的干部身份；账号、密码、任务及答案全部保留。
+    // Session 每次请求重新查询 User，因此旧班管理权限不会缓存到登录凭据中。
+    return tx.user.update({
+      where: { id },
+      data: { classId: input.classId, isClassOfficer: input.isClassOfficer },
+      select: publicUser,
+    });
+  });
+}

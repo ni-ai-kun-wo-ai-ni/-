@@ -1,6 +1,7 @@
 'use client';
 import { useState, useRef } from 'react';
 import { api, type Bootstrap, type Person } from '@/lib/types';
+import TransferStudentDialog from './transfer-student-dialog';
 
 export default function StudentManagement({
   data,
@@ -17,6 +18,7 @@ export default function StudentManagement({
 }) {
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<Person | null>(null);
+  const [transferring, setTransferring] = useState<Person | null>(null);
   const [confirmUsername, setConfirmUsername] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -33,6 +35,7 @@ export default function StudentManagement({
     setNotice('');
     setChosenGrade(gradeFilter || data.grades[0]?.id || '');
     setDeleting(null);
+    setTransferring(null);
     setAdding(true);
   };
 
@@ -87,6 +90,19 @@ export default function StudentManagement({
                   <td>{s.username}</td>
                   <td>
                     <button
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() => {
+                        setTransferring(s);
+                        setAdding(false);
+                        setDeleting(null);
+                        setError('');
+                        setNotice('');
+                      }}
+                    >
+                      转班
+                    </button>
+                    <button
                       className="text-button danger"
                       disabled={busy}
                       onClick={() => {
@@ -95,6 +111,7 @@ export default function StudentManagement({
                         setError('');
                         setNotice('');
                         setAdding(false);
+                        setTransferring(null);
                       }}
                     >
                       删除账号
@@ -111,6 +128,26 @@ export default function StudentManagement({
           </table>
         </div>
       </div>
+      {transferring && (
+        <TransferStudentDialog
+          key={transferring.id}
+          student={transferring}
+          grades={data.grades}
+          onCancel={() => setTransferring(null)}
+          onTransferred={async (updated) => {
+            setTransferring(null);
+            setSearch('');
+            setNotice(
+              `${updated.name} 已转入${updated.class?.name}，身份为${updated.isClassOfficer ? '班干部' : '普通学生'}。`,
+            );
+            try {
+              await refresh();
+            } catch {
+              setNotice('转班已完成，但刷新列表失败，请刷新页面查看。');
+            }
+          }}
+        />
+      )}
       {adding && (
         <div className="modal-overlay">
           <section

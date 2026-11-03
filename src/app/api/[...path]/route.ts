@@ -14,7 +14,7 @@ import {
 } from '@/lib/auth';
 import { accessibleTask, isOpen, publicUser, taskReport, taskStatus } from '@/lib/access';
 import { taskSchema, validateAnswers } from '@/lib/validation';
-import { createStudent, deleteStudent } from '@/lib/students';
+import { createStudent, deleteStudent, transferStudent } from '@/lib/students';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ path: string[] }> };
@@ -123,6 +123,10 @@ async function handle(req: NextRequest, ctx: Context) {
       teacherOnly(user);
       await deleteStudent(user, path[1], await req.json());
       return json({ ok: true });
+    }
+    if (path.length === 3 && path[0] === 'students' && path[2] === 'transfer' && write) {
+      teacherOnly(user);
+      return json(await transferStudent(user, path[1], await req.json()));
     }
     if (key === 'tasks' && write) {
       teacherOnly(user);
