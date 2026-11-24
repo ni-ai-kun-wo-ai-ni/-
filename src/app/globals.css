@@ -70,6 +70,28 @@
   overflow-wrap: anywhere;
   white-space: normal;
 }
+.attachment-picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+.attachment-picker input[hidden] {
+  display: none;
+}
+.upload-help {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 12px 0;
+}
+.upload-help summary {
+  cursor: pointer;
+  color: var(--green);
+}
+.upload-help input {
+  width: 100%;
+}
 .signature-pad canvas {
   display: block;
   width: 100%;

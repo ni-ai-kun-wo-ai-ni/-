@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { api, dateText, type Submission, type Task } from '@/lib/types';
 import {
   FILE_ACCEPT,
-  PHOTO_ACCEPT,
   MAX_FIELD_FILES,
   MAX_FILE_BYTES,
   MAX_SUBMISSION_BYTES,
@@ -13,6 +12,7 @@ import {
 } from '@/lib/attachment-types';
 import AttachmentLinks from './attachment-links';
 import SignaturePad from './signature-pad';
+import AttachmentPicker from './attachment-picker';
 export default function StudentForm({
   task,
   submission,
@@ -153,14 +153,12 @@ export default function StudentForm({
                           移除 {file.name}
                         </button>
                       ))}
-                  <input
+                  <AttachmentPicker
                     id={f.id}
-                    type="file"
-                    multiple
-                    accept={f.type === 'PHOTO' ? PHOTO_ACCEPT : FILE_ACCEPT}
-                    onChange={(e) => {
-                      const picked = Array.from(e.target.files || []);
-                      e.target.value = '';
+                    label={f.label}
+                    photoOnly={f.type === 'PHOTO'}
+                    disabled={locked || busy}
+                    onFiles={(picked) => {
                       const selected = [...(files[f.id] || []), ...picked];
                       if (
                         selected.length + (Array.isArray(value) ? value.length : 0) >
@@ -171,6 +169,23 @@ export default function StudentForm({
                       }
                       if (picked.some((file) => file.size <= 0 || file.size > MAX_FILE_BYTES)) {
                         setError(`单个文件须非空且不超过${MAX_FILE_MB} MB`);
+                        return;
+                      }
+                      const allowed =
+                        f.type === 'PHOTO'
+                          ? ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+                          : FILE_ACCEPT.split(',');
+                      if (
+                        picked.some(
+                          (file) =>
+                            !allowed.includes('.' + file.name.split('.').pop()!.toLowerCase()),
+                        )
+                      ) {
+                        setError(
+                          f.type === 'PHOTO'
+                            ? '请选择JPG、PNG、GIF或WebP照片'
+                            : '暂不支持该文件格式，请选择常用文档、图片或ZIP压缩包',
+                        );
                         return;
                       }
                       setFiles({ ...files, [f.id]: selected });
