@@ -1,5 +1,6 @@
 import type { FormField, Prisma, User } from '@prisma/client';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { db } from './db';
 import { HttpError } from './auth';
 import { accessibleTask, isOpen } from './access';
@@ -23,7 +24,7 @@ type UploadedFile = {
   data: Uint8Array<ArrayBuffer>;
 };
 function imageMime(data: Uint8Array) {
-  const b = Buffer.from(data);
+  const b = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
   if (b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
   if (b[0] === 255 && b[1] === 216 && b[2] === 255) return 'image/jpeg';
   if (['GIF87a', 'GIF89a'].includes(b.subarray(0, 6).toString())) return 'image/gif';
@@ -40,29 +41,42 @@ export async function readSubmission(request: Request, fields: FormField[]) {
     throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
   const reader = request.body?.getReader();
   if (!reader) throw new HttpError(400, '没有收到提交内容');
-  const chunks: Uint8Array[] = [];
   let size = 0;
-  try {
-    while (true) {
-      const part = await reader.read();
-      if (part.done) break;
-      size += part.value.byteLength;
-      if (size > limit) {
-        await reader.cancel();
-        throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
+  let exceeded = false;
+  // 边读取边交给 multipart 解析器，不再额外拼接一份完整请求体。
+  const limitedBody = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const part = await reader.read();
+        if (part.done) {
+          controller.close();
+          return;
+        }
+        size += part.value.byteLength;
+        if (size > limit) {
+          exceeded = true;
+          await reader.cancel();
+          controller.error(new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`));
+          return;
+        }
+        controller.enqueue(part.value);
+      } catch (error) {
+        controller.error(error);
       }
-      chunks.push(part.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
+    },
+    cancel: (reason) => reader.cancel(reason),
+  });
   let form: FormData;
   try {
-    form = await new Response(Buffer.concat(chunks), {
+    form = await new Response(limitedBody, {
       headers: { 'Content-Type': request.headers.get('content-type')! },
     }).formData();
   } catch {
+    if (exceeded) throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
     throw new HttpError(400, '附件上传格式不正确');
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
   if (form.getAll('answers').length !== 1 || typeof form.get('answers') !== 'string')
     throw new HttpError(400, '提交答案格式不正确');
@@ -122,6 +136,9 @@ export async function prepareAttachments(
   uploads: UploadedFile[],
 ) {
   const input = z.record(z.string(), z.unknown()).parse(raw);
+  const toCreate: Prisma.AttachmentCreateManyInput[] = [];
+  if (!fields.some((field) => ATTACHMENT_FIELD_TYPES.includes(field.type)))
+    return { input, retained: [] as string[], toCreate };
   const previous = await tx.attachment.findMany({
     where: { taskId, userId },
     select: attachmentSelect,
@@ -151,18 +168,16 @@ export async function prepareAttachments(
       total += file.size;
       if (total > MAX_SUBMISSION_BYTES)
         throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
-      const created = await tx.attachment.create({
-        data: { ...file, taskId, userId },
-        select: { id: true },
-      });
-      ids.push(created.id);
-      retained.push(created.id);
+      const id = randomUUID();
+      toCreate.push({ id, ...file, taskId, userId });
+      ids.push(id);
+      retained.push(id);
     }
     input[field.id] = ids;
   }
   if (total > MAX_SUBMISSION_BYTES)
     throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
-  return { input, retained };
+  return { input, retained, toCreate };
 }
 
 export async function downloadAttachment(actor: User, id: string, preview: boolean) {

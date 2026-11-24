@@ -530,13 +530,20 @@ export default function Workspace() {
               <StudentForm
                 key={detail.task.id}
                 {...detail}
-                done={() =>
-                  void perform(async () => {
-                    await refresh();
-                    navigate('records');
-                    setNotice('提交已保存');
-                  })
-                }
+                done={(receipt) => {
+                  setData((previous) =>
+                    previous && previous.user.id === data.user.id
+                      ? {
+                          ...previous,
+                          tasks: previous.tasks.map((task) =>
+                            task.id === detail.task.id ? { ...task, submissions: [receipt] } : task,
+                          ),
+                        }
+                      : previous,
+                  );
+                  navigate('records');
+                  setNotice('提交已保存');
+                }}
               />
             </>
           )}

@@ -1,6 +1,6 @@
 'use client';
-import { useState } from 'react';
-import { api, dateText, type Submission, type Task } from '@/lib/types';
+import { useRef, useState } from 'react';
+import { dateText, type Submission, type Task } from '@/lib/types';
 import {
   FILE_ACCEPT,
   MAX_FIELD_FILES,
@@ -8,11 +8,15 @@ import {
   MAX_SUBMISSION_BYTES,
   MAX_FILE_MB,
   MAX_SUBMISSION_MB,
-  ATTACHMENT_FIELD_TYPES,
 } from '@/lib/attachment-types';
 import AttachmentLinks from './attachment-links';
 import SignaturePad from './signature-pad';
 import AttachmentPicker from './attachment-picker';
+import {
+  sendSubmission,
+  type SubmissionReceipt,
+  type UploadProgress,
+} from '@/lib/submission-client';
 export default function StudentForm({
   task,
   submission,
@@ -20,7 +24,7 @@ export default function StudentForm({
 }: {
   task: Task;
   submission: Submission | null;
-  done: () => void;
+  done: (receipt: SubmissionReceipt) => void;
 }) {
   const [answers, setAnswers] = useState<Record<string, string | string[]>>(() =>
     Object.fromEntries(submission?.answers?.map((a) => [a.fieldId, JSON.parse(a.value)]) || []),
@@ -28,16 +32,21 @@ export default function StudentForm({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState<Record<string, File[]>>({});
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
+  const inFlight = useRef(false);
   const locked = task.displayStatus !== '收集中' || (!!submission && !task.allowEdit);
   return (
     <form
       className="panel form-sheet"
       onSubmit={async (e) => {
         e.preventDefault();
+        if (inFlight.current) return;
+        inFlight.current = true;
         setBusy(true);
         setError('');
         try {
-          if (task.fields?.some((field) => ATTACHMENT_FIELD_TYPES.includes(field.type))) {
+          let receipt: SubmissionReceipt;
+          if (Object.values(files).some((selected) => selected.length)) {
             const retained = (submission?.attachments || []).filter(
               (file) =>
                 Array.isArray(answers[file.fieldId]) &&
@@ -54,18 +63,19 @@ export default function StudentForm({
             form.set('answers', JSON.stringify(answers));
             for (const [fieldId, selected] of Object.entries(files))
               for (const file of selected) form.append(`files:${fieldId}`, file);
-            const response = await fetch(`/api/tasks/${task.id}/submit`, {
-              method: 'POST',
-              body: form,
-            });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || '提交失败');
-          } else await api(`tasks/${task.id}/submit`, answers);
-          done();
+            setProgress({ phase: 'uploading', percent: 0, loaded: 0, total });
+            receipt = await sendSubmission(task.id, form, setProgress);
+          } else {
+            setProgress({ phase: 'saving', percent: null, loaded: 0, total: 0 });
+            receipt = await sendSubmission(task.id, answers, setProgress);
+          }
+          done(receipt);
         } catch (e) {
           setError((e as Error).message);
         } finally {
           setBusy(false);
+          setProgress(null);
+          inFlight.current = false;
         }
       }}
     >
@@ -267,12 +277,40 @@ export default function StudentForm({
           {error}
         </p>
       )}
+      {busy && progress && (
+        <div className="notice submission-progress" role="status" aria-live="polite">
+          <p>
+            {progress.phase === 'saving'
+              ? '正在确认保存，请保持页面打开…'
+              : progress.percent === null
+                ? '正在上传附件，请保持页面打开…'
+                : `正在上传附件 ${progress.percent}%${progress.total ? `（${(progress.loaded / 1024 / 1024).toFixed(1)} / ${(progress.total / 1024 / 1024).toFixed(1)} MB）` : ''}`}
+          </p>
+          <progress
+            aria-label={progress.phase === 'saving' ? '正在保存提交' : '附件上传进度'}
+            max={100}
+            value={
+              progress.phase === 'uploading' && progress.percent !== null
+                ? progress.percent
+                : undefined
+            }
+          />
+        </div>
+      )}
       {locked ? (
         <p className="notice">
           {task.displayStatus !== '收集中' ? '此任务当前不能填写。' : '已提交，此任务不允许修改。'}
         </p>
       ) : (
-        <button disabled={busy}>{busy ? '提交中…' : submission ? '保存修改' : '确认提交 →'}</button>
+        <button disabled={busy}>
+          {busy
+            ? progress?.phase === 'uploading'
+              ? '上传中…'
+              : '保存中…'
+            : submission
+              ? '保存修改'
+              : '确认提交 →'}
+        </button>
       )}
     </form>
   );

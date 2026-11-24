@@ -107,6 +107,12 @@
 .signature-saved[aria-hidden='true'] {
   visibility: hidden;
 }
+.submission-progress p {
+  margin-bottom: 8px;
+}
+.submission-progress progress {
+  width: 100%;
+}
 .import-preview {
   max-height: 360px;
   overflow: auto;

@@ -196,6 +196,29 @@ test('文件与照片：上传、下载、权限隔离、修改和级联清理',
       assert.match(response.headers.get('content-disposition')!, /^inline/);
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), png);
     });
+    await t.test('仅修改文字可用JSON保留原附件，回执带真实保存时间与分段耗时', async () => {
+      const response = await request(`tasks/${id}/submit`, student.cookie, {
+        [text.id]: '仅修改文字',
+        [doc.id]: files.filter((file) => file.fieldId === doc.id).map((file) => file.id),
+        [photo.id]: files.filter((file) => file.fieldId === photo.id).map((file) => file.id),
+      });
+      assert.equal(response.status, 200);
+      const receipt = await response.json();
+      assert.equal(receipt.ok, true);
+      const saved = await db.submission.findUniqueOrThrow({
+        where: { taskId_userId: { taskId: id, userId: student.user.id } },
+      });
+      assert.equal(receipt.submission.submittedAt, saved.submittedAt.toISOString());
+      assert.equal(receipt.submission.updatedAt, saved.updatedAt.toISOString());
+      assert.match(response.headers.get('server-timing')!, /^receive;dur=[\d.]+, save;dur=[\d.]+$/);
+      assert.deepEqual(
+        (await db.attachment.findMany({ where: { taskId: id }, select: { id: true } }))
+          .map((file) => file.id)
+          .sort(),
+        files.map((file) => file.id).sort(),
+      );
+      assert.ok(!JSON.stringify(receipt).includes('data'));
+    });
     await t.test('匿名、其他学生、未授权班干部不能下载，也不能从统计中取得附件信息', async () => {
       for (const [cookie, status] of [
         ['', 401],
@@ -440,4 +463,39 @@ test('文件与照片：上传、下载、权限隔离、修改和级联清理',
     }
     await db.$disconnect();
   }
+});
+
+test('无Content-Length的分块上传仍受80MB限制，超限立即取消读取', async () => {
+  const chunk = new Uint8Array(1024 * 1024);
+  let sent = 0,
+    cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent++ === 0) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            '--limit-test\r\nContent-Disposition: form-data; name="files:unknown"; filename="large.zip"\r\nContent-Type: application/zip\r\n\r\n',
+          ),
+        );
+        return;
+      }
+      if (sent <= MAX_SUBMISSION_BYTES / chunk.length + 4) controller.enqueue(chunk);
+      else controller.close();
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const init = {
+    method: 'POST',
+    headers: { 'Content-Type': 'multipart/form-data; boundary=limit-test' },
+    body,
+    duplex: 'half',
+  };
+  await assert.rejects(
+    readSubmission(new Request('http://127.0.0.1/upload-limit', init), []),
+    (error: unknown) =>
+      !!error && typeof error === 'object' && 'status' in error && error.status === 413,
+  );
+  assert.equal(cancelled, true);
 });

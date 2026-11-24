@@ -29,8 +29,10 @@ import { createTeacher, deleteTeacher, listTeachers, updateTeacher } from '@/lib
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ path: string[] }> };
-const json = (data: unknown) =>
-  NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } });
+const json = (data: unknown, timing?: string) =>
+  NextResponse.json(data, {
+    headers: { 'Cache-Control': 'no-store', ...(timing ? { 'Server-Timing': timing } : {}) },
+  });
 // 本地 MVP 的登录限速；重启会清空，不代替生产环境限速。
 const attempts = new Map<string, { count: number; until: number }>();
 async function handle(req: NextRequest, ctx: Context) {
@@ -386,11 +388,14 @@ async function handle(req: NextRequest, ctx: Context) {
       }
       if (action === 'submit' && write) {
         if (user.role !== 'STUDENT') throw new HttpError(403, '只有学生可以填写');
+        const receiveStart = performance.now();
         const { raw, uploads } = await readSubmission(req, task.fields);
-        await db.$transaction(
+        const receiveMs = performance.now() - receiveStart;
+        const saveStart = performance.now();
+        const submission = await db.$transaction(
           async (tx) => {
             const existing = await assertSubmittable(tx, taskId, user.id);
-            const { input, retained } = await prepareAttachments(
+            const { input, retained, toCreate } = await prepareAttachments(
               tx,
               taskId,
               user.id,
@@ -399,20 +404,27 @@ async function handle(req: NextRequest, ctx: Context) {
               uploads,
             );
             const answers = validateAnswers(task.fields, input);
+            if (toCreate.length) await tx.attachment.createMany({ data: toCreate });
             if (existing)
               await tx.submissionAnswer.deleteMany({ where: { submissionId: existing.id } });
-            await tx.submission.upsert({
+            const saved = await tx.submission.upsert({
               where: { taskId_userId: { taskId, userId: user.id } },
               create: { taskId, userId: user.id, answers: { create: answers } },
               update: { updatedAt: new Date(), answers: { create: answers } },
+              select: { submittedAt: true, updatedAt: true },
             });
-            await tx.attachment.deleteMany({
-              where: { taskId, userId: user.id, id: { notIn: retained } },
-            });
+            if (task.fields.some((field) => ['FILE', 'PHOTO', 'SIGNATURE'].includes(field.type)))
+              await tx.attachment.deleteMany({
+                where: { taskId, userId: user.id, id: { notIn: retained } },
+              });
+            return saved;
           },
           { timeout: 15000 },
         );
-        return json({ ok: true });
+        return json(
+          { ok: true, submission },
+          `receive;dur=${receiveMs.toFixed(1)}, save;dur=${(performance.now() - saveStart).toFixed(1)}`,
+        );
       }
     }
     throw new HttpError(404, '接口不存在');
