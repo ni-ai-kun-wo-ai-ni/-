@@ -1,9 +1,28 @@
 import ExcelJS from 'exceljs';
 import { Prisma, type User } from '@prisma/client';
 import { hash } from 'bcryptjs';
+import { z } from 'zod';
 import { db } from './db';
 import { HttpError, teacherOnly } from './auth';
-import { MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, type StudentImportRow } from './student-import-types';
+import {
+  MAX_IMPORT_BYTES,
+  MAX_IMPORT_ROWS,
+  type StudentImportRow,
+  type StudentImportEdit,
+} from './student-import-types';
+
+const editsSchema = z
+  .array(
+    z
+      .object({
+        rowNumber: z.number().int().min(2).max(10000),
+        name: z.string().max(200).optional(),
+        studentNumber: z.string().max(200).optional(),
+        remove: z.boolean().optional(),
+      })
+      .strict(),
+  )
+  .max(MAX_IMPORT_ROWS);
 
 // 限制整个请求大小，包括没有 Content-Length 的分块上传。
 async function readUpload(request: Request) {
@@ -39,7 +58,10 @@ async function readUpload(request: Request) {
     throw new HttpError(400, '上传格式不正确');
   }
   for (const key of form.keys()) {
-    if (!['file', 'classId', 'gradeId', 'mode'].includes(key) || form.getAll(key).length !== 1)
+    if (
+      !['file', 'classId', 'gradeId', 'mode', 'edits'].includes(key) ||
+      form.getAll(key).length !== 1
+    )
       throw new HttpError(400, '上传字段不正确');
   }
   const file = form.get('file'),
@@ -56,7 +78,19 @@ async function readUpload(request: Request) {
     !['preview', 'commit'].includes(String(mode))
   )
     throw new HttpError(400, '归属或导入操作不正确');
-  return { file, classId: classId || null, gradeId: gradeId || null, mode };
+  let edits: StudentImportEdit[] = [];
+  if (form.has('edits')) {
+    const value = form.get('edits');
+    if (typeof value !== 'string') throw new HttpError(400, '预览修改格式不正确');
+    try {
+      edits = editsSchema.parse(JSON.parse(value));
+    } catch {
+      throw new HttpError(400, '预览修改格式不正确，请重新检查');
+    }
+    if (new Set(edits.map((edit) => edit.rowNumber)).size !== edits.length)
+      throw new HttpError(400, '预览修改包含重复的表格行号');
+  }
+  return { file, classId: classId || null, gradeId: gradeId || null, mode, edits };
 }
 
 function cellText(cell: ExcelJS.Cell, numeric = false) {
@@ -84,7 +118,7 @@ function cellText(cell: ExcelJS.Cell, numeric = false) {
   );
 }
 
-async function parseStudents(file: File) {
+async function parseStudents(file: File, edits: StudentImportEdit[]) {
   const book = new ExcelJS.Workbook();
   try {
     await book.xlsx.load(await file.arrayBuffer());
@@ -110,26 +144,39 @@ async function parseStudents(file: File) {
   if (!columns.has('姓名') || !columns.has('学号'))
     throw new HttpError(400, '第一行必须包含“姓名”和“学号”两列');
   const rows: StudentImportRow[] = [];
+  const editsByRow = new Map(edits.map((edit) => [edit.rowNumber, edit]));
+  const sourceRows = new Set<number>();
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
     const record: StudentImportRow = { rowNumber, name: '', studentNumber: '', errors: [] };
+    let nameError = '',
+      numberError = '';
     try {
       record.name = cellText(row.getCell(columns.get('姓名')!));
     } catch (error) {
-      record.errors.push((error as Error).message);
+      nameError = (error as Error).message;
     }
     try {
       record.studentNumber = cellText(row.getCell(columns.get('学号')!), true);
     } catch (error) {
-      record.errors.push((error as Error).message);
+      numberError = (error as Error).message;
     }
-    if (!record.name && !record.studentNumber && !record.errors.length) return;
+    if (!record.name && !record.studentNumber && !nameError && !numberError) return;
+    sourceRows.add(rowNumber);
+    const edit = editsByRow.get(rowNumber);
+    if (edit?.remove) return;
+    if (edit?.name !== undefined) record.name = edit.name.trim();
+    else if (nameError) record.errors.push(nameError);
+    if (edit?.studentNumber !== undefined) record.studentNumber = edit.studentNumber.trim();
+    else if (numberError) record.errors.push(numberError);
     if (!record.name || record.name.length > 60) record.errors.push('姓名必填，最长60字');
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(record.studentNumber))
       record.errors.push('学号须为1～32位字母、数字、下划线或横线');
     rows.push(record);
   });
-  if (!rows.length) throw new HttpError(400, '没有可导入的学生，请从第2行填写数据');
+  if (edits.some((edit) => !sourceRows.has(edit.rowNumber)))
+    throw new HttpError(400, '修改的行不在原始名单中，请重新上传表格');
+  if (!rows.length) throw new HttpError(400, '没有可导入的学生，请至少保留一行有效名单');
   if (rows.length > MAX_IMPORT_ROWS)
     throw new HttpError(400, `每次最多导入 ${MAX_IMPORT_ROWS} 人，请分批上传`);
   const occurrences = new Map<string, number[]>();
@@ -154,7 +201,7 @@ async function conflicts(client: Prisma.TransactionClient, rows: StudentImportRo
 
 export async function importStudents(actor: User, request: Request) {
   teacherOnly(actor);
-  const { file, classId, gradeId, mode } = await readUpload(request);
+  const { file, classId, gradeId, mode, edits } = await readUpload(request);
   const cls = classId
     ? await db.class.findUnique({ where: { id: classId }, include: { grade: true } })
     : null;
@@ -162,7 +209,7 @@ export async function importStudents(actor: User, request: Request) {
   const grade = gradeId ? await db.grade.findUnique({ where: { id: gradeId } }) : null;
   if (gradeId && !grade) throw new HttpError(400, '所选年级不存在，请刷新后重试');
   if (cls && gradeId && cls.gradeId !== gradeId) throw new HttpError(400, '班级不属于所选年级');
-  const rows = await parseStudents(file);
+  const rows = await parseStudents(file, edits);
   const existing = await conflicts(db, rows);
   const used = new Set(existing.flatMap((user) => [user.username, user.studentNumber]));
   for (const row of rows)

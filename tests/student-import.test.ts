@@ -353,6 +353,99 @@ test('学生表格导入：教师权限、逐行预览、整批验证与首次�
         await db.grade.delete({ where: { id: otherGrade.id } });
       }
     });
+    await t.test('预览可移除重复账号并修改姓名学号，提交仅创建最终名单且保留已有账号', async () => {
+      const bytes = await workbook([
+        ['已存在的老师', 'teacher001'],
+        ['待修改同学', `${prefix}editold`],
+      ]);
+      const original = await (await upload(teacher, classId, bytes)).json();
+      assert.equal(original.canImport, false);
+      const existing = await db.user.findUniqueOrThrow({ where: { username: 'teacher001' } });
+      const edits = JSON.stringify([
+        { rowNumber: 2, remove: true },
+        { rowNumber: 3, name: '修改后姓名', studentNumber: `${prefix}edited` },
+      ]);
+      const checked = await upload(teacher, classId, bytes, 'preview', { edits });
+      assert.equal(checked.status, 200);
+      const preview: StudentImportPreview = await checked.json();
+      assert.equal(preview.canImport, true);
+      assert.equal(preview.rows.length, 1);
+      assert.equal(preview.rows[0].rowNumber, 3);
+      assert.equal(preview.rows[0].name, '修改后姓名');
+      assert.equal(await db.user.count({ where: { username: `${prefix}edited` } }), 0);
+      const commit = await upload(teacher, classId, bytes, 'commit', { edits });
+      assert.equal(commit.status, 200);
+      assert.equal((await commit.json()).imported, 1);
+      const saved = await db.user.findUniqueOrThrow({ where: { username: `${prefix}edited` } });
+      assert.equal(saved.name, '修改后姓名');
+      assert.equal(saved.studentNumber, `${prefix}edited`);
+      assert.equal(await db.user.count({ where: { username: `${prefix}editold` } }), 0);
+      assert.deepEqual(await db.user.findUniqueOrThrow({ where: { id: existing.id } }), existing);
+    });
+    await t.test('姓名重名不拦截，学号不同即为不同学生，不合并已有同名学生', async () => {
+      const bytes = await workbook([
+        ['虚构导入同学甲', `${prefix}samename1`],
+        ['虚构导入同学甲', `${prefix}samename2`],
+      ]);
+      const response = await upload(teacher, '', bytes);
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).canImport, true);
+      assert.equal((await upload(teacher, '', bytes, 'commit')).status, 200);
+      assert.equal(
+        await db.user.count({
+          where: { username: { startsWith: prefix }, name: '虚构导入同学甲' },
+        }),
+        3,
+      );
+    });
+    await t.test('修改后重复、空姓名或非法学号仍被拦截，不能绕过预览覆盖已有学生', async () => {
+      const bytes = await workbook([
+        ['甲', `${prefix}invalidedit1`],
+        ['乙', `${prefix}invalidedit2`],
+      ]);
+      for (const changes of [
+        [{ rowNumber: 3, studentNumber: `${prefix}invalidedit1` }],
+        [{ rowNumber: 2, studentNumber: 'teacher001' }],
+        [{ rowNumber: 2, name: '   ' }],
+        [{ rowNumber: 2, studentNumber: '非法学号' }],
+      ]) {
+        const edits = JSON.stringify(changes);
+        const preview = await upload(teacher, '', bytes, 'preview', { edits });
+        assert.equal(preview.status, 200);
+        assert.equal((await preview.json()).canImport, false);
+        assert.equal((await upload(teacher, '', bytes, 'commit', { edits })).status, 400);
+      }
+      assert.equal(
+        await db.user.count({ where: { username: { startsWith: `${prefix}invalidedit` } } }),
+        0,
+      );
+    });
+    await t.test(
+      '拒绝伪造行号、角色、错误修改格式和移除全部名单，原表单元格错误可显式修正',
+      async () => {
+        const bytes = await workbook([['甲', `${prefix}format`]]);
+        for (const edits of [
+          '{bad',
+          JSON.stringify([{ rowNumber: 99, name: '伪造' }]),
+          JSON.stringify([{ rowNumber: 2, role: 'TEACHER' }]),
+          JSON.stringify([{ rowNumber: 2, remove: true }]),
+          JSON.stringify([
+            { rowNumber: 2, name: '甲' },
+            { rowNumber: 2, name: '乙' },
+          ]),
+        ])
+          assert.equal((await upload(teacher, '', bytes, 'commit', { edits })).status, 400);
+        assert.equal(await db.user.count({ where: { username: `${prefix}format` } }), 0);
+        const invalid = await workbook([[{ formula: '"公式姓名"' }, { formula: '"学号"' }]]);
+        const edits = JSON.stringify([
+          { rowNumber: 2, name: '修正公式单元格', studentNumber: `${prefix}formulaedit` },
+        ]);
+        const checked = await upload(teacher, '', invalid, 'preview', { edits });
+        assert.equal(checked.status, 200);
+        assert.equal((await checked.json()).canImport, true);
+        assert.equal((await upload(teacher, '', invalid, 'commit', { edits })).status, 200);
+      },
+    );
     await t.test('并发导入同一表格最多创建一批；预览后班级删除会被重新校验', async () => {
       const bytes = await workbook([['虚构并发同学', `${prefix}concurrent`]]);
       const results = await Promise.all([

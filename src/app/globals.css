@@ -60,6 +60,16 @@
   max-height: 360px;
   overflow: auto;
 }
+.import-preview input {
+  min-width: 150px;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.import-preview td:nth-child(4) {
+  min-width: 200px;
+  white-space: normal;
+}
 :root {
   --green: #176b5b;
   --dark: #163c34;

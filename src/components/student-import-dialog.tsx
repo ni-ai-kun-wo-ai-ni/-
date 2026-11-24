@@ -5,6 +5,7 @@ import {
   MAX_IMPORT_BYTES,
   MAX_IMPORT_ROWS,
   type StudentImportPreview,
+  type StudentImportEdit,
 } from '@/lib/student-import-types';
 
 export default function StudentImportDialog({
@@ -24,6 +25,31 @@ export default function StudentImportDialog({
   const [preview, setPreview] = useState<StudentImportPreview | null>(null);
   const [busy, setBusy] = useState<'preview' | 'commit' | null>(null);
   const [error, setError] = useState('');
+  const [edits, setEdits] = useState<Record<number, StudentImportEdit>>({});
+  const [needsCheck, setNeedsCheck] = useState(false);
+  function editRow(rowNumber: number, patch: Omit<StudentImportEdit, 'rowNumber'>) {
+    setEdits((previous) => ({
+      ...previous,
+      [rowNumber]: { ...previous[rowNumber], rowNumber, ...patch },
+    }));
+    setPreview((previous) =>
+      previous
+        ? {
+            ...previous,
+            canImport: false,
+            rows: patch.remove
+              ? previous.rows.filter((row) => row.rowNumber !== rowNumber)
+              : previous.rows.map((row) =>
+                  row.rowNumber === rowNumber
+                    ? { ...row, ...patch, errors: ['已修改，请重新检查'] }
+                    : row,
+                ),
+          }
+        : null,
+    );
+    setNeedsCheck(true);
+    setError('');
+  }
   const grade = grades.find((g) => g.id === gradeId);
   async function upload(mode: 'preview' | 'commit') {
     if (!file || busy) return;
@@ -39,14 +65,18 @@ export default function StudentImportDialog({
       form.set('classId', classId);
       form.set('gradeId', gradeId);
       form.set('mode', mode);
+      if (Object.keys(edits).length) form.set('edits', JSON.stringify(Object.values(edits)));
       const response = await fetch('/api/students/import', { method: 'POST', body: form });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || '导入失败，请稍后重试');
-      if (mode === 'preview') setPreview(result);
-      else onImported(result.imported, gradeId);
+      if (mode === 'preview') {
+        setPreview(result);
+        setNeedsCheck(false);
+      } else onImported(result.imported, gradeId);
     } catch (error) {
       setError((error as Error).message);
-      if (mode === 'commit') setPreview(null);
+      setNeedsCheck(true);
+      setPreview((previous) => (previous ? { ...previous, canImport: false } : null));
     } finally {
       setBusy(null);
     }
@@ -70,6 +100,9 @@ export default function StudentImportDialog({
         <p className="muted">
           账号为学号，初始密码 123456，首次登录必须改密。全部按普通学生创建，不自动加入历史任务。
         </p>
+        <p className="muted">
+          姓名允许重名，以学号和登录账号判断重复。预览中可以修改姓名、学号或移除本次导入行，已有学生账号不会被覆盖或删除。
+        </p>
         <fieldset className="student-fields" disabled={!!busy}>
           <div className="form-grid">
             <label>
@@ -79,7 +112,8 @@ export default function StudentImportDialog({
                 onChange={(e) => {
                   setGradeId(e.target.value);
                   setClassId('');
-                  setPreview(null);
+                  setPreview((previous) => (previous ? { ...previous, canImport: false } : null));
+                  setNeedsCheck(true);
                   setError('');
                 }}
               >
@@ -98,7 +132,8 @@ export default function StudentImportDialog({
                 disabled={!gradeId}
                 onChange={(e) => {
                   setClassId(e.target.value);
-                  setPreview(null);
+                  setPreview((previous) => (previous ? { ...previous, canImport: false } : null));
+                  setNeedsCheck(true);
                   setError('');
                 }}
               >
@@ -119,6 +154,8 @@ export default function StudentImportDialog({
               onChange={(e) => {
                 setFile(e.target.files?.[0] || null);
                 setPreview(null);
+                setEdits({});
+                setNeedsCheck(false);
                 setError('');
               }}
             />
@@ -128,7 +165,7 @@ export default function StudentImportDialog({
             disabled={!file || !!busy}
             onClick={() => void upload('preview')}
           >
-            {busy === 'preview' ? '检查中…' : '检查并预览'}
+            {busy === 'preview' ? '检查中…' : preview ? '重新检查名单' : '检查并预览'}
           </button>
         </fieldset>
         {preview && (
@@ -141,10 +178,26 @@ export default function StudentImportDialog({
                   : '暂未分配年级和班级'}
               </b>
               ，共 {preview.rows.length} 人。
-              {preview.canImport
-                ? '检查通过，请核对后确认导入。'
-                : '存在错误，本次不会导入，请修改表格后重新上传。'}
+              {needsCheck
+                ? '名单或归属已修改，请点击“重新检查名单”。'
+                : preview.canImport
+                  ? '检查通过，请核对后确认导入。'
+                  : '存在错误，请在下方修改信息或移除重复行，再重新检查。'}
             </p>
+            {Object.keys(edits).length > 0 && (
+              <button
+                className="secondary"
+                disabled={!!busy}
+                onClick={() => {
+                  setEdits({});
+                  setPreview(null);
+                  setNeedsCheck(false);
+                  setError('');
+                }}
+              >
+                恢复原表名单
+              </button>
+            )}
             <div className="table-wrap import-preview">
               <table>
                 <thead>
@@ -153,16 +206,44 @@ export default function StudentImportDialog({
                     <th>姓名</th>
                     <th>学号 / 账号</th>
                     <th>检查结果</th>
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.rows.map((row) => (
                     <tr key={row.rowNumber}>
                       <td>{row.rowNumber}</td>
-                      <td>{row.name}</td>
-                      <td>{row.studentNumber}</td>
+                      <td>
+                        <input
+                          aria-label={`第${row.rowNumber}行姓名`}
+                          value={row.name}
+                          maxLength={60}
+                          disabled={!!busy}
+                          onChange={(e) => editRow(row.rowNumber, { name: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          aria-label={`第${row.rowNumber}行学号`}
+                          value={row.studentNumber}
+                          maxLength={32}
+                          disabled={!!busy}
+                          onChange={(e) =>
+                            editRow(row.rowNumber, { studentNumber: e.target.value })
+                          }
+                        />
+                      </td>
                       <td className={row.errors.length ? 'error' : ''}>
                         {row.errors.join('；') || '可导入'}
+                      </td>
+                      <td>
+                        <button
+                          className="text-button danger"
+                          disabled={!!busy}
+                          onClick={() => editRow(row.rowNumber, { remove: true })}
+                        >
+                          移除本行
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -183,7 +264,10 @@ export default function StudentImportDialog({
           <button className="secondary" disabled={!!busy} onClick={onCancel}>
             取消
           </button>
-          <button disabled={!!busy || !preview?.canImport} onClick={() => void upload('commit')}>
+          <button
+            disabled={!!busy || needsCheck || !preview?.canImport || !preview.rows.length}
+            onClick={() => void upload('commit')}
+          >
             {busy === 'commit'
               ? '导入中…'
               : `确认导入${preview ? ` ${preview.rows.length} 人` : ''}`}
