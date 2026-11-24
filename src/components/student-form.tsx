@@ -89,13 +89,17 @@ export default function StudentForm({
               </label>
               {f.type === 'SIGNATURE' ? (
                 <>
-                  <AttachmentLinks
-                    previewLabel="查看签名"
-                    files={(submission?.attachments || []).filter(
-                      (file) =>
-                        file.fieldId === f.id && Array.isArray(value) && value.includes(file.id),
-                    )}
-                  />
+                  <div
+                    className="signature-saved"
+                    aria-hidden={!Array.isArray(value) || !value.length}
+                  >
+                    <AttachmentLinks
+                      previewLabel="查看签名"
+                      files={(submission?.attachments || []).filter(
+                        (file) => file.fieldId === f.id,
+                      )}
+                    />
+                  </div>
                   {!locked && (
                     <SignaturePad
                       id={f.id}
@@ -108,8 +112,14 @@ export default function StudentForm({
                       }}
                     />
                   )}
-                  {files[f.id]?.length > 0 && (
-                    <p className="notice">签名已完成，确认提交后保存。需要修改时可清空重写。</p>
+                  {!locked && (
+                    <p
+                      className="notice signature-status"
+                      role="status"
+                      aria-hidden={!files[f.id]?.length}
+                    >
+                      签名已完成，确认提交后保存。需要修改时可清空重写。
+                    </p>
                   )}
                 </>
               ) : ['FILE', 'PHOTO'].includes(f.type) ? (

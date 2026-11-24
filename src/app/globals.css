@@ -81,6 +81,10 @@
   cursor: crosshair;
   margin: 12px 0;
 }
+.signature-status[aria-hidden='true'],
+.signature-saved[aria-hidden='true'] {
+  visibility: hidden;
+}
 .import-preview {
   max-height: 360px;
   overflow: auto;
