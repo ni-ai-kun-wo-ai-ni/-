@@ -10,7 +10,13 @@ async function main() {
   const passwordHash = await hash('Demo2026!', 12);
   const grade = await db.grade.create({ data: { name: '2025级' } });
   const teacher = await db.user.create({
-    data: { username: 'teacher001', name: '演示教师', passwordHash, role: 'TEACHER' },
+    data: {
+      username: 'teacher001',
+      name: '演示教师',
+      passwordHash,
+      role: 'TEACHER',
+      isSuperAdmin: true,
+    },
   });
   const ids: string[] = [];
   let studentIndex = 1;

@@ -9,6 +9,6 @@ export type StudentImportRow = {
 export type StudentImportPreview = {
   rows: StudentImportRow[];
   canImport: boolean;
-  className: string;
-  gradeName: string;
+  className: string | null;
+  gradeName: string | null;
 };

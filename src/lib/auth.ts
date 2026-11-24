@@ -22,15 +22,25 @@ export async function currentUser() {
     throw new HttpError(401, '登录已过期，请重新登录');
   return session.user;
 }
-export async function createSession(userId: string, expectedPasswordHash?: string) {
+export async function createSession(
+  userId: string,
+  expectedPasswordHash?: string,
+  expectedUsername?: string,
+) {
   const token = randomBytes(32).toString('hex');
   await db.$transaction(async (tx) => {
     // 防止旧密码登录与首次改密并发时，在改密完成后又创建一个旧凭据会话。
     if (
       expectedPasswordHash &&
-      !(await tx.user.findFirst({ where: { id: userId, passwordHash: expectedPasswordHash } }))
+      !(await tx.user.findFirst({
+        where: {
+          id: userId,
+          passwordHash: expectedPasswordHash,
+          ...(expectedUsername ? { username: expectedUsername } : {}),
+        },
+      }))
     )
-      throw new HttpError(401, '密码已变化，请使用新密码登录');
+      throw new HttpError(401, '账号或密码已变化，请使用新信息登录');
     await tx.session.create({
       data: { id: tokenHash(token), userId, expiresAt: new Date(Date.now() + 7 * 86400000) },
     });
@@ -45,6 +55,10 @@ export async function createSession(userId: string, expectedPasswordHash?: strin
 }
 export function teacherOnly(user: { role: string }) {
   if (user.role !== 'TEACHER') throw new HttpError(403, '仅教师可以操作');
+}
+export function superAdminOnly(user: { role: string; isSuperAdmin: boolean }) {
+  if (user.role !== 'TEACHER' || !user.isSuperAdmin)
+    throw new HttpError(403, '仅超级管理员可以管理教师账号');
 }
 // 对写操作验证同源，Cookie 不接受来自其他站点的请求。
 export function checkOrigin(request: Request) {

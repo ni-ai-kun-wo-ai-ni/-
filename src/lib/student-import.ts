@@ -39,19 +39,24 @@ async function readUpload(request: Request) {
     throw new HttpError(400, '上传格式不正确');
   }
   for (const key of form.keys()) {
-    if (!['file', 'classId', 'mode'].includes(key) || form.getAll(key).length !== 1)
+    if (!['file', 'classId', 'gradeId', 'mode'].includes(key) || form.getAll(key).length !== 1)
       throw new HttpError(400, '上传字段不正确');
   }
   const file = form.get('file'),
     classId = form.get('classId'),
+    gradeId = form.get('gradeId'),
     mode = form.get('mode');
   if (!(file instanceof File) || !file.name.toLowerCase().endsWith('.xlsx'))
     throw new HttpError(400, '仅支持 .xlsx 文件，请先在 Excel 或 WPS 中另存为该格式');
   if (!file.size || file.size > MAX_IMPORT_BYTES)
     throw new HttpError(413, '请选择非空且不超过 1 MB 的文件');
-  if (typeof classId !== 'string' || !classId || !['preview', 'commit'].includes(String(mode)))
-    throw new HttpError(400, '请选择班级和导入操作');
-  return { file, classId, mode };
+  if (
+    (classId !== null && typeof classId !== 'string') ||
+    (gradeId !== null && typeof gradeId !== 'string') ||
+    !['preview', 'commit'].includes(String(mode))
+  )
+    throw new HttpError(400, '归属或导入操作不正确');
+  return { file, classId: classId || null, gradeId: gradeId || null, mode };
 }
 
 function cellText(cell: ExcelJS.Cell, numeric = false) {
@@ -149,9 +154,14 @@ async function conflicts(client: Prisma.TransactionClient, rows: StudentImportRo
 
 export async function importStudents(actor: User, request: Request) {
   teacherOnly(actor);
-  const { file, classId, mode } = await readUpload(request);
-  const cls = await db.class.findUnique({ where: { id: classId }, include: { grade: true } });
-  if (!cls) throw new HttpError(400, '所选班级不存在，请刷新后重试');
+  const { file, classId, gradeId, mode } = await readUpload(request);
+  const cls = classId
+    ? await db.class.findUnique({ where: { id: classId }, include: { grade: true } })
+    : null;
+  if (classId && !cls) throw new HttpError(400, '所选班级不存在，请刷新后重试');
+  const grade = gradeId ? await db.grade.findUnique({ where: { id: gradeId } }) : null;
+  if (gradeId && !grade) throw new HttpError(400, '所选年级不存在，请刷新后重试');
+  if (cls && gradeId && cls.gradeId !== gradeId) throw new HttpError(400, '班级不属于所选年级');
   const rows = await parseStudents(file);
   const existing = await conflicts(db, rows);
   const used = new Set(existing.flatMap((user) => [user.username, user.studentNumber]));
@@ -159,7 +169,12 @@ export async function importStudents(actor: User, request: Request) {
     if (used.has(row.studentNumber)) row.errors.push('学号或登录账号已存在，不会覆盖已有学生');
   const canImport = rows.every((row) => !row.errors.length);
   if (mode === 'preview')
-    return { rows, canImport, className: cls.name, gradeName: cls.grade.name };
+    return {
+      rows,
+      canImport,
+      className: cls?.name || null,
+      gradeName: cls?.grade.name || grade?.name || null,
+    };
   if (!canImport)
     throw new HttpError(400, '表格仍有错误或重复账号，本次未导入任何学生，请重新预览并修正');
   // 每个账号使用独立盐；慢速密码计算在事务外完成，避免长期锁住 SQLite。
@@ -173,14 +188,17 @@ export async function importStudents(actor: User, request: Request) {
       isClassOfficer: false,
       mustChangePassword: true,
       classId,
+      gradeId: classId ? null : gradeId,
       passwordHash: await hash('123456', 12),
     });
   try {
     await db.$transaction(
       async (tx) => {
         // 确认导入时重新检查，不能依赖之前预览的结果或客户端提交的身份。
-        if (!(await tx.class.findUnique({ where: { id: classId } })))
+        if (classId && !(await tx.class.findUnique({ where: { id: classId } })))
           throw new HttpError(409, '班级已被删除，请重新选择');
+        if (gradeId && !(await tx.grade.findUnique({ where: { id: gradeId } })))
+          throw new HttpError(409, '年级已被删除，请重新选择');
         if ((await conflicts(tx, rows)).length)
           throw new HttpError(409, '预览后已有账号被创建，本次未导入任何学生，请重新预览');
         await tx.user.createMany({ data: records });

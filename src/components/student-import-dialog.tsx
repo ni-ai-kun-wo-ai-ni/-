@@ -16,9 +16,9 @@ export default function StudentImportDialog({
   grades: Bootstrap['grades'];
   initialGradeId: string;
   onCancel: () => void;
-  onImported: (count: number) => void;
+  onImported: (count: number, gradeId: string) => void;
 }) {
-  const [gradeId, setGradeId] = useState(initialGradeId || grades[0]?.id || '');
+  const [gradeId, setGradeId] = useState(initialGradeId || '');
   const [classId, setClassId] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<StudentImportPreview | null>(null);
@@ -26,7 +26,7 @@ export default function StudentImportDialog({
   const [error, setError] = useState('');
   const grade = grades.find((g) => g.id === gradeId);
   async function upload(mode: 'preview' | 'commit') {
-    if (!file || !classId || busy) return;
+    if (!file || busy) return;
     setError('');
     if (!file.name.toLowerCase().endsWith('.xlsx') || file.size > MAX_IMPORT_BYTES) {
       setError('请选择不超过 1 MB 的 .xlsx 文件');
@@ -37,12 +37,13 @@ export default function StudentImportDialog({
       const form = new FormData();
       form.set('file', file);
       form.set('classId', classId);
+      form.set('gradeId', gradeId);
       form.set('mode', mode);
       const response = await fetch('/api/students/import', { method: 'POST', body: form });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || '导入失败，请稍后重试');
       if (mode === 'preview') setPreview(result);
-      else onImported(result.imported);
+      else onImported(result.imported, gradeId);
     } catch (error) {
       setError((error as Error).message);
       if (mode === 'commit') setPreview(null);
@@ -60,7 +61,7 @@ export default function StudentImportDialog({
       >
         <h2 id="student-import-title">批量导入学生</h2>
         <p className="muted">
-          每次导入一个班，最多 {MAX_IMPORT_ROWS}{' '}
+          可导入班级名单或年级名单，也可暂不分配年级和班级。每次最多 {MAX_IMPORT_ROWS}{' '}
           人。表格第一行需有“姓名”和“学号”两列，读取第一个工作表。其他列不导入。学号请设置为文本，保留前导零。
         </p>
         <a className="button secondary" href="/api/students/import-template" download>
@@ -72,7 +73,7 @@ export default function StudentImportDialog({
         <fieldset className="student-fields" disabled={!!busy}>
           <div className="form-grid">
             <label>
-              年级
+              年级（可选）
               <select
                 value={gradeId}
                 onChange={(e) => {
@@ -82,6 +83,7 @@ export default function StudentImportDialog({
                   setError('');
                 }}
               >
+                <option value="">暂不分配年级和班级</option>
                 {grades.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name}
@@ -90,18 +92,17 @@ export default function StudentImportDialog({
               </select>
             </label>
             <label>
-              导入到班级
+              班级（可选）
               <select
                 value={classId}
+                disabled={!gradeId}
                 onChange={(e) => {
                   setClassId(e.target.value);
                   setPreview(null);
                   setError('');
                 }}
               >
-                <option value="" disabled>
-                  请选择班级
-                </option>
+                <option value="">暂不分班</option>
                 {grade?.classes.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -124,7 +125,7 @@ export default function StudentImportDialog({
           </label>
           <button
             className="secondary"
-            disabled={!file || !classId || !!busy}
+            disabled={!file || !!busy}
             onClick={() => void upload('preview')}
           >
             {busy === 'preview' ? '检查中…' : '检查并预览'}
@@ -135,7 +136,9 @@ export default function StudentImportDialog({
             <p role="status">
               将导入到{' '}
               <b>
-                {preview.gradeName} · {preview.className}
+                {preview.gradeName
+                  ? `${preview.gradeName} · ${preview.className || '暂未分班'}`
+                  : '暂未分配年级和班级'}
               </b>
               ，共 {preview.rows.length} 人。
               {preview.canImport

@@ -132,7 +132,7 @@ export default function TaskBuilder({
         {specific && (
           <div className="target-list">
             {data.students
-              .filter((s) => s.class?.gradeId === gradeId)
+              .filter((s) => (s.class?.gradeId || s.gradeId) === gradeId)
               .map((s) => (
                 <label key={s.id} className="check">
                   <input
@@ -144,7 +144,7 @@ export default function TaskBuilder({
                       )
                     }
                   />
-                  {s.name} · {s.class?.name}
+                  {s.name} · {s.class?.name || '暂未分班'}
                 </label>
               ))}
           </div>

@@ -11,12 +11,14 @@ export default function StudentManagement({
   search,
   setSearch,
   refresh,
+  setGradeFilter,
 }: {
   data: Bootstrap;
   gradeFilter: string;
   search: string;
   setSearch: (value: string) => void;
   refresh: () => Promise<void>;
+  setGradeFilter: (value: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -27,12 +29,20 @@ export default function StudentManagement({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [assignmentFilter, setAssignmentFilter] = useState('all');
   const [chosenGrade, setChosenGrade] = useState('');
   const [newStudentNumber, setNewStudentNumber] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
-  const students = data.students.filter((s) => !gradeFilter || s.class?.gradeId === gradeFilter);
+  const students = data.students.filter(
+    (s) =>
+      (!gradeFilter || (s.class?.gradeId || s.gradeId) === gradeFilter) &&
+      (assignmentFilter === 'all' ||
+        (assignmentFilter === 'noClass' ? !s.classId : !s.classId && !s.gradeId)),
+  );
   const visible = students.filter((s) =>
-    `${s.name}${s.studentNumber}${s.class?.name}${s.username}`.includes(search),
+    `${s.name}${s.studentNumber}${s.class?.name || ''}${s.grade?.name || ''}${s.username}`.includes(
+      search,
+    ),
   );
   const grade = data.grades.find((g) => g.id === chosenGrade);
   const openAdd = () => {
@@ -65,7 +75,7 @@ export default function StudentManagement({
           </button>
           <button
             className="secondary"
-            disabled={busy || !data.grades.some((g) => g.classes.length)}
+            disabled={busy}
             onClick={() => {
               setNotice('');
               setError('');
@@ -74,6 +84,18 @@ export default function StudentManagement({
           >
             批量导入
           </button>
+          <select
+            aria-label="学生分配状态"
+            value={assignmentFilter}
+            onChange={(e) => {
+              setAssignmentFilter(e.target.value);
+              if (e.target.value === 'unassigned') setGradeFilter('');
+            }}
+          >
+            <option value="all">全部分配状态</option>
+            <option value="noClass">暂未分班</option>
+            <option value="unassigned">未分配年级和班级</option>
+          </select>
         </div>
         {notice && (
           <p className="notice" role="status">
@@ -87,6 +109,7 @@ export default function StudentManagement({
                 <th>姓名</th>
                 <th>学号</th>
                 <th>班级</th>
+                <th>年级</th>
                 <th>身份</th>
                 <th>登录账号</th>
                 <th>操作</th>
@@ -99,7 +122,11 @@ export default function StudentManagement({
                     <b>{s.name}</b>
                   </td>
                   <td>{s.studentNumber}</td>
-                  <td>{s.class?.name}</td>
+                  <td>{s.class?.name || '暂未分班'}</td>
+                  <td>
+                    {data.grades.find((g) => g.id === (s.class?.gradeId || s.gradeId))?.name ||
+                      '暂未分配'}
+                  </td>
                   <td>
                     <span className={`badge ${s.isClassOfficer ? 'open' : 'draft'}`}>
                       {s.isClassOfficer ? '班干部' : '学生'}
@@ -136,7 +163,7 @@ export default function StudentManagement({
                         setNotice('');
                       }}
                     >
-                      转班
+                      {s.classId ? '转班' : '分配班级'}
                     </button>
                     <button
                       className="text-button danger"
@@ -158,7 +185,7 @@ export default function StudentManagement({
               ))}
               {!visible.length && (
                 <tr>
-                  <td colSpan={6}>没有符合条件的学生。</td>
+                  <td colSpan={7}>没有符合条件的学生。</td>
                 </tr>
               )}
             </tbody>
@@ -170,9 +197,11 @@ export default function StudentManagement({
           grades={data.grades}
           initialGradeId={gradeFilter}
           onCancel={() => setImporting(false)}
-          onImported={async (count) => {
+          onImported={async (count, importedGradeId) => {
             setImporting(false);
             setSearch('');
+            setGradeFilter(importedGradeId);
+            setAssignmentFilter('all');
             setNotice(
               `已成功导入 ${count} 名学生，账号为学号，初始密码为 123456，首次登录需改密。`,
             );

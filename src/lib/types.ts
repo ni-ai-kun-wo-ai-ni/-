@@ -4,9 +4,12 @@ export type Person = {
   name: string;
   studentNumber: string | null;
   role: string;
+  isSuperAdmin: boolean;
   isClassOfficer: boolean;
   mustChangePassword: boolean;
   classId: string | null;
+  gradeId: string | null;
+  grade: { id: string; name: string } | null;
   class: { id: string; name: string; gradeId: string } | null;
 };
 export type Field = { id: string; label: string; type: string; required: boolean; options: string };

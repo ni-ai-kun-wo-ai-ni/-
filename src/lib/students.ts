@@ -88,7 +88,7 @@ export async function transferStudent(actor: User, id: string, raw: unknown) {
     // Session 每次请求重新查询 User，因此旧班管理权限不会缓存到登录凭据中。
     return tx.user.update({
       where: { id },
-      data: { classId: input.classId, isClassOfficer: input.isClassOfficer },
+      data: { classId: input.classId, gradeId: null, isClassOfficer: input.isClassOfficer },
       select: publicUser,
     });
   });

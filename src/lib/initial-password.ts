@@ -25,7 +25,7 @@ export async function completeInitialPassword(userId: string, raw: unknown) {
   const passwordHash = await hash(input.password, 12);
   await db.$transaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id: userId } });
-    if (!user || user.role !== 'STUDENT' || !user.mustChangePassword)
+    if (!user || !['STUDENT', 'TEACHER'].includes(user.role) || !user.mustChangePassword)
       throw new HttpError(409, '该账号已设置过密码，请使用新密码重新登录');
     await tx.user.update({
       where: { id: userId },

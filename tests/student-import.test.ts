@@ -29,7 +29,7 @@ async function workbook(rows: ExcelJS.CellValue[][], headers = ['姓名', '学�
 }
 async function upload(
   cookie: string,
-  classId: string,
+  classId: string | null,
   bytes: Uint8Array,
   mode = 'preview',
   extra?: Record<string, string>,
@@ -37,7 +37,7 @@ async function upload(
   filename = '名单.xlsx',
 ) {
   const form = new FormData();
-  form.set('classId', classId);
+  if (classId !== null) form.set('classId', classId);
   form.set('mode', mode);
   form.set('file', new Blob([bytes as BlobPart]), filename);
   for (const [key, value] of Object.entries(extra || {})) form.set(key, value);
@@ -236,6 +236,122 @@ test('学生表格导入：教师权限、逐行预览、整批验证与首次�
         (await db.user.findUniqueOrThrow({ where: { username: `${prefix}race2` } })).name,
         '保留原姓名',
       );
+    });
+    await t.test(
+      '不选年级班级也可预览和导入，空值和省略字段均可，重复账号仍阻止整批导入',
+      async () => {
+        const bytes = await workbook([['未分配同学', `${prefix}unassigned`]]);
+        const preview = await upload(teacher, null, bytes);
+        assert.equal(preview.status, 200);
+        const result: StudentImportPreview = await preview.json();
+        assert.equal(result.gradeName, null);
+        assert.equal(result.className, null);
+        assert.equal(result.canImport, true);
+        assert.equal(await db.user.count({ where: { username: `${prefix}unassigned` } }), 0);
+        assert.equal((await upload(teacher, '', bytes, 'commit', { gradeId: '' })).status, 200);
+        const user = await db.user.findUniqueOrThrow({
+          where: { username: `${prefix}unassigned` },
+        });
+        assert.equal(user.classId, null);
+        assert.equal(user.gradeId, null);
+        assert.equal(user.isClassOfficer, false);
+        assert.equal(user.mustChangePassword, true);
+        assert.ok(await compare('123456', user.passwordHash));
+        assert.equal((await upload(teacher, null, bytes, 'commit')).status, 400);
+        const home = await (await json('bootstrap', teacher)).json();
+        assert.ok(
+          home.students.some(
+            (s: { id: string; classId: string | null; gradeId: string | null }) =>
+              s.id === user.id && s.classId === null && s.gradeId === null,
+          ),
+        );
+        assert.equal(
+          (
+            await json(`students/${user.id}/identity`, teacher, {
+              isClassOfficer: true,
+              fromClassId: null,
+            })
+          ).status,
+          400,
+        );
+        assert.equal(
+          (
+            await json(`students/${user.id}/transfer`, teacher, {
+              classId,
+              fromClassId: null,
+              isClassOfficer: false,
+            })
+          ).status,
+          200,
+        );
+      },
+    );
+    await t.test('只选年级可导入未分班学生，可参加本年级任务并在以后分班', async () => {
+      const bytes = await workbook([['年级未分班同学', `${prefix}gradeonly`]]);
+      const preview: StudentImportPreview = await (
+        await upload(teacher, '', bytes, 'preview', { gradeId })
+      ).json();
+      assert.equal(preview.gradeName, grade.name);
+      assert.equal(preview.className, null);
+      assert.equal(preview.canImport, true);
+      assert.equal((await upload(teacher, '', bytes, 'commit', { gradeId })).status, 200);
+      const user = await db.user.findUniqueOrThrow({ where: { username: `${prefix}gradeonly` } });
+      assert.equal(user.gradeId, gradeId);
+      assert.equal(user.classId, null);
+      const response = await json('tasks', teacher, {
+        title: '未分班任务测试',
+        description: '',
+        gradeId,
+        deadline: new Date(Date.now() + 86400000).toISOString(),
+        allowEdit: true,
+        officerCanView: false,
+        targetIds: [user.id],
+        fields: [{ label: '字段', type: 'TEXT', required: false, options: [] }],
+      });
+      assert.equal(response.status, 200);
+      const task = await response.json();
+      try {
+        assert.equal(await db.taskTarget.count({ where: { taskId: task.id, userId: user.id } }), 1);
+      } finally {
+        await db.collectionTask.delete({ where: { id: task.id } });
+      }
+      assert.equal(
+        (
+          await json(`students/${user.id}/transfer`, teacher, {
+            classId,
+            fromClassId: null,
+            isClassOfficer: false,
+          })
+        ).status,
+        200,
+      );
+      assert.equal((await db.user.findUniqueOrThrow({ where: { id: user.id } })).gradeId, null);
+    });
+    await t.test('可选归属仍校验无效年级、年级班级不匹配及年级删除关联保护', async () => {
+      const otherGrade = await db.grade.create({ data: { name: `仅年级导入测试_${tag}` } });
+      try {
+        const bytes = await workbook([['关联保护同学', `${prefix}gradeguard`]]);
+        assert.equal(
+          (await upload(teacher, '', bytes, 'preview', { gradeId: 'missing' })).status,
+          400,
+        );
+        assert.equal(
+          (await upload(teacher, classId, bytes, 'commit', { gradeId: otherGrade.id })).status,
+          400,
+        );
+        assert.equal(
+          (await upload(teacher, '', bytes, 'commit', { gradeId: otherGrade.id })).status,
+          200,
+        );
+        assert.equal(
+          (await json(`grades/${otherGrade.id}/delete`, teacher, { confirmName: otherGrade.name }))
+            .status,
+          409,
+        );
+      } finally {
+        await db.user.deleteMany({ where: { gradeId: otherGrade.id } });
+        await db.grade.delete({ where: { id: otherGrade.id } });
+      }
     });
     await t.test('并发导入同一表格最多创建一批；预览后班级删除会被重新校验', async () => {
       const bytes = await workbook([['虚构并发同学', `${prefix}concurrent`]]);

@@ -12,6 +12,7 @@ model Grade {
   name    String           @unique
   classes Class[]
   tasks   CollectionTask[]
+  students User[]
 }
 
 model Class {
@@ -32,9 +33,12 @@ model User {
   name               String
   studentNumber      String?          @unique
   role               String           @default("STUDENT")
+  isSuperAdmin       Boolean          @default(false)
   isClassOfficer     Boolean          @default(false)
   classId            String?
   class              Class?           @relation(fields: [classId], references: [id])
+  gradeId            String?
+  grade              Grade?           @relation(fields: [gradeId], references: [id], onDelete: Restrict)
   sessions           Session[]
   submissions        Submission[]
   tasks              CollectionTask[]

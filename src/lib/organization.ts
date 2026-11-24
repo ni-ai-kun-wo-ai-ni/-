@@ -61,14 +61,14 @@ export async function deleteOrganization(
       } else {
         const grade = await tx.grade.findUnique({
           where: { id },
-          include: { _count: { select: { classes: true, tasks: true } } },
+          include: { _count: { select: { classes: true, tasks: true, students: true } } },
         });
         if (!grade) throw new HttpError(404, '年级不存在或已被删除');
         if (confirmName !== grade.name) throw new HttpError(400, '请输入完整年级名称确认删除');
-        if (grade._count.classes || grade._count.tasks)
+        if (grade._count.classes || grade._count.tasks || grade._count.students)
           throw new HttpError(
             409,
-            `该年级还有 ${grade._count.classes} 个班级、${grade._count.tasks} 个任务，请先处理并删除这些班级和任务`,
+            `该年级还有 ${grade._count.classes} 个班级、${grade._count.tasks} 个任务、${grade._count.students} 名未分班学生，请先处理关联数据`,
           );
         await tx.grade.delete({ where: { id } });
       }

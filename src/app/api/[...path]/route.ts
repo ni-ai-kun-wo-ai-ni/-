@@ -18,6 +18,7 @@ import { createStudent, deleteStudent, transferStudent, setStudentIdentity } fro
 import { completeInitialPassword } from '@/lib/initial-password';
 import { createGrade, createClass, deleteOrganization } from '@/lib/organization';
 import { importStudents, studentImportTemplate } from '@/lib/student-import';
+import { createTeacher, deleteTeacher, listTeachers, updateTeacher } from '@/lib/teachers';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ path: string[] }> };
@@ -44,7 +45,8 @@ async function handle(req: NextRequest, ctx: Context) {
       const user = await db.user.findUnique({ where: { username: input.username } });
       if (
         !user ||
-        (input.password === '123456' && (!user.mustChangePassword || user.role !== 'STUDENT')) ||
+        (input.password === '123456' &&
+          (!user.mustChangePassword || !['STUDENT', 'TEACHER'].includes(user.role))) ||
         (process.env.PUBLIC_MODE === 'true' && input.password === 'Demo2026!') ||
         !(await compare(input.password, user.passwordHash))
       ) {
@@ -54,7 +56,7 @@ async function handle(req: NextRequest, ctx: Context) {
         throw new HttpError(401, '账号或密码错误');
       }
       attempts.delete(input.username);
-      await createSession(user.id, user.passwordHash);
+      await createSession(user.id, user.passwordHash, user.username);
       return json({ ok: true, mustChangePassword: user.mustChangePassword });
     }
     const user = await currentUser();
@@ -77,6 +79,18 @@ async function handle(req: NextRequest, ctx: Context) {
         return json({ user: me, tasks: [], officerTasks: [], students: [], grades: [] });
       }
       throw new HttpError(403, '请先设置自己的密码，再使用系统');
+    }
+    if (key === 'teachers') {
+      return json(write ? await createTeacher(user, await req.json()) : await listTeachers(user));
+    }
+    if (path.length === 3 && path[0] === 'teachers' && path[2] === 'delete' && write) {
+      await deleteTeacher(user, path[1], await req.json());
+      return json({ ok: true });
+    }
+    if (path.length === 3 && path[0] === 'teachers' && path[2] === 'update' && write) {
+      const result = await updateTeacher(user, path[1], await req.json());
+      if (result.reauthenticate) (await cookies()).delete('grade_session');
+      return json(result);
     }
     if (key === 'bootstrap' && !write) {
       const me = await db.user.findUnique({ where: { id: user.id }, select: publicUser });
@@ -202,7 +216,7 @@ async function handle(req: NextRequest, ctx: Context) {
       const students = await db.user.findMany({
         where: {
           role: 'STUDENT',
-          class: { gradeId: input.gradeId },
+          OR: [{ class: { gradeId: input.gradeId } }, { gradeId: input.gradeId }],
           ...(input.targetIds ? { id: { in: input.targetIds } } : {}),
         },
         select: { id: true },

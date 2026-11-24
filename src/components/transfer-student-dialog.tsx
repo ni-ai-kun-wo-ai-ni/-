@@ -13,7 +13,9 @@ export default function TransferStudentDialog({
   onCancel: () => void;
   onTransferred: (student: Person) => Promise<void>;
 }) {
-  const [gradeId, setGradeId] = useState(student.class?.gradeId || grades[0]?.id || '');
+  const [gradeId, setGradeId] = useState(
+    student.class?.gradeId || student.gradeId || grades[0]?.id || '',
+  );
   const [classId, setClassId] = useState('');
   const [officer, setOfficer] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -27,7 +29,7 @@ export default function TransferStudentDialog({
         aria-modal="true"
         aria-labelledby="transfer-student-title"
       >
-        <h2 id="transfer-student-title">学生转班</h2>
+        <h2 id="transfer-student-title">{student.classId ? '学生转班' : '分配班级'}</h2>
         <p>
           <b>{student.name}</b>（{student.studentNumber}）<br />
           当前班级：{student.class?.name || '未分班'}

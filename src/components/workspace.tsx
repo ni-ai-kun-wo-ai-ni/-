@@ -16,11 +16,13 @@ import DeadlineEditor from './deadline-editor';
 import DeleteTaskDialog from './delete-task-dialog';
 import InitialPasswordDialog from './initial-password-dialog';
 import OrganizationManagement from './organization-management';
+import TeacherManagement from './teacher-management';
 const labels: Record<string, string> = {
   home: '工作台',
   tasks: '任务管理',
   students: '学生管理',
   classes: '班级管理',
+  teachers: '教师账号管理',
   create: '创建任务',
   records: '我的提交',
   officer: '本班管理',
@@ -161,11 +163,11 @@ export default function Workspace() {
   const teacher = data.user.role === 'TEACHER';
   const officer = data.user.isClassOfficer;
   const nav = teacher
-    ? ['home', 'tasks', 'students', 'classes']
+    ? ['home', 'tasks', 'students', 'classes', ...(data.user.isSuperAdmin ? ['teachers'] : [])]
     : ['home', 'records', ...(officer ? ['officer'] : [])];
   const scopedTasks = data.tasks.filter((t) => !gradeFilter || t.gradeId === gradeFilter);
   const scopedStudents = data.students.filter(
-    (s) => !gradeFilter || s.class?.gradeId === gradeFilter,
+    (s) => !gradeFilter || (s.class?.gradeId || s.gradeId) === gradeFilter,
   );
   const scopedClasses = data.grades
     .filter((g) => !gradeFilter || g.id === gradeFilter)
@@ -308,7 +310,7 @@ export default function Workspace() {
         <nav>
           {nav.map((v, i) => (
             <button key={v} className={view === v ? 'active' : ''} onClick={() => navigate(v)}>
-              <span>{['◫', '▤', '♧', '▦'][i]}</span>
+              <span>{['◫', '▤', '♧', '▦', '⚙'][i]}</span>
               {labels[v]}
               {v === 'tasks' && <small>{data.tasks.length}</small>}
             </button>
@@ -324,7 +326,15 @@ export default function Workspace() {
             <span className="avatar">{data.user.name.slice(0, 1)}</span>
             <span>
               {data.user.name}
-              <small>{teacher ? '教师' : officer ? '班干部' : '学生'}</small>
+              <small>
+                {teacher
+                  ? data.user.isSuperAdmin
+                    ? '超级管理员'
+                    : '教师'
+                  : officer
+                    ? '班干部'
+                    : '学生'}
+              </small>
             </span>
             <button
               className="text-button"
@@ -468,10 +478,22 @@ export default function Workspace() {
           {view === 'students' && teacher && (
             <StudentManagement
               data={data}
+              setGradeFilter={setGradeFilter}
               gradeFilter={gradeFilter}
               search={search}
               setSearch={setSearch}
               refresh={refresh}
+            />
+          )}
+          {view === 'teachers' && teacher && data.user.isSuperAdmin && (
+            <TeacherManagement
+              userId={data.user.id}
+              onSelfUpdated={refresh}
+              onRelogin={() => {
+                setData(null);
+                navigate('home');
+                setError('账号信息已更新，请使用新的账号和密码重新登录');
+              }}
             />
           )}
           {view === 'classes' && teacher && (
