@@ -177,14 +177,21 @@ export default function ReportView({
                     report.task.fields?.map((f) => {
                       const answer = r.submission?.answers?.find((a) => a.fieldId === f.id);
                       const v = answer ? JSON.parse(answer.value) : '—';
-                      if (['FILE', 'PHOTO'].includes(f.type)) {
+                      if (['FILE', 'PHOTO', 'SIGNATURE'].includes(f.type)) {
                         const files = (r.submission?.attachments || []).filter(
                           (file) =>
                             file.fieldId === f.id && Array.isArray(v) && v.includes(file.id),
                         );
                         return (
                           <td key={f.id}>
-                            {files.length ? <AttachmentLinks files={files} /> : '—'}
+                            {files.length ? (
+                              <AttachmentLinks
+                                files={files}
+                                previewLabel={f.type === 'SIGNATURE' ? '查看签名' : '查看照片'}
+                              />
+                            ) : (
+                              '—'
+                            )}
                           </td>
                         );
                       }

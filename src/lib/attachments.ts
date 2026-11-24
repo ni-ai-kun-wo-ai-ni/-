@@ -7,6 +7,10 @@ import {
   FILE_ACCEPT,
   MAX_FIELD_FILES,
   MAX_FILE_BYTES,
+  MAX_FILE_MB,
+  MAX_SUBMISSION_MB,
+  MAX_SIGNATURE_BYTES,
+  ATTACHMENT_FIELD_TYPES,
   MAX_SUBMISSION_BYTES,
   attachmentSelect,
 } from './attachment-types';
@@ -33,7 +37,7 @@ export async function readSubmission(request: Request, fields: FormField[]) {
     return { raw: await request.json(), uploads: [] as UploadedFile[] };
   const limit = MAX_SUBMISSION_BYTES + 128 * 1024;
   if (Number(request.headers.get('content-length')) > limit)
-    throw new HttpError(413, '每次提交附件总大小不能超过30 MB');
+    throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
   const reader = request.body?.getReader();
   if (!reader) throw new HttpError(400, '没有收到提交内容');
   const chunks: Uint8Array[] = [];
@@ -45,7 +49,7 @@ export async function readSubmission(request: Request, fields: FormField[]) {
       size += part.value.byteLength;
       if (size > limit) {
         await reader.cancel();
-        throw new HttpError(413, '每次提交附件总大小不能超过30 MB');
+        throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
       }
       chunks.push(part.value);
     }
@@ -67,12 +71,16 @@ export async function readSubmission(request: Request, fields: FormField[]) {
   for (const [key, value] of form.entries()) {
     if (key === 'answers') continue;
     const fieldId = key.startsWith('files:') ? key.slice(6) : '';
-    const field = fields.find((f) => f.id === fieldId && ['FILE', 'PHOTO'].includes(f.type));
+    const field = fields.find((f) => f.id === fieldId && ATTACHMENT_FIELD_TYPES.includes(f.type));
     if (!field || !(value instanceof File)) throw new HttpError(400, '包含无效的附件字段');
     if (value.size <= 0 || value.size > MAX_FILE_BYTES)
-      throw new HttpError(413, '单个文件须非空且不超过10 MB');
-    if (uploads.filter((f) => f.fieldId === fieldId).length >= MAX_FIELD_FILES)
-      throw new HttpError(400, '每个上传字段最多5个文件');
+      throw new HttpError(413, `单个文件须非空且不超过${MAX_FILE_MB} MB`);
+    const maxFiles = field.type === 'SIGNATURE' ? 1 : MAX_FIELD_FILES;
+    if (uploads.filter((f) => f.fieldId === fieldId).length >= maxFiles)
+      throw new HttpError(
+        400,
+        field.type === 'SIGNATURE' ? '每题只能保留一份签名' : '每个上传字段最多5个文件',
+      );
     const name = value.name
       .split(/[\\/]/)
       .pop()!
@@ -84,6 +92,14 @@ export async function readSubmission(request: Request, fields: FormField[]) {
       throw new HttpError(400, '仅支持常用文档、图片和ZIP压缩包');
     const data = new Uint8Array(await value.arrayBuffer());
     const detectedImage = imageMime(data);
+    if (
+      field.type === 'SIGNATURE' &&
+      (detectedImage !== 'image/png' ||
+        extension !== '.png' ||
+        data.byteLength > MAX_SIGNATURE_BYTES ||
+        data.byteLength < 24)
+    )
+      throw new HttpError(400, '签名须为不超过1 MB的PNG手写签名图片');
     if (field.type === 'PHOTO' && !detectedImage)
       throw new HttpError(400, '照片须为有效的JPG、PNG、GIF或WebP图片');
     uploads.push({
@@ -112,7 +128,7 @@ export async function prepareAttachments(
   });
   const retained: string[] = [];
   let total = 0;
-  for (const field of fields.filter((f) => ['FILE', 'PHOTO'].includes(f.type))) {
+  for (const field of fields.filter((f) => ATTACHMENT_FIELD_TYPES.includes(f.type))) {
     const value = input[field.id];
     const ids =
       value === undefined || value === ''
@@ -126,11 +142,15 @@ export async function prepareAttachments(
       retained.push(id);
     }
     const additions = uploads.filter((f) => f.fieldId === field.id);
-    if (ids.length + additions.length > MAX_FIELD_FILES)
-      throw new HttpError(400, '每个上传字段最多5个文件');
+    if (ids.length + additions.length > (field.type === 'SIGNATURE' ? 1 : MAX_FIELD_FILES))
+      throw new HttpError(
+        400,
+        field.type === 'SIGNATURE' ? '每题只能保留一份签名' : '每个上传字段最多5个文件',
+      );
     for (const file of additions) {
       total += file.size;
-      if (total > MAX_SUBMISSION_BYTES) throw new HttpError(413, '每次提交附件总大小不能超过30 MB');
+      if (total > MAX_SUBMISSION_BYTES)
+        throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
       const created = await tx.attachment.create({
         data: { ...file, taskId, userId },
         select: { id: true },
@@ -140,7 +160,8 @@ export async function prepareAttachments(
     }
     input[field.id] = ids;
   }
-  if (total > MAX_SUBMISSION_BYTES) throw new HttpError(413, '每次提交附件总大小不能超过30 MB');
+  if (total > MAX_SUBMISSION_BYTES)
+    throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
   return { input, retained };
 }
 

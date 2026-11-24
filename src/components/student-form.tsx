@@ -7,8 +7,12 @@ import {
   MAX_FIELD_FILES,
   MAX_FILE_BYTES,
   MAX_SUBMISSION_BYTES,
+  MAX_FILE_MB,
+  MAX_SUBMISSION_MB,
+  ATTACHMENT_FIELD_TYPES,
 } from '@/lib/attachment-types';
 import AttachmentLinks from './attachment-links';
+import SignaturePad from './signature-pad';
 export default function StudentForm({
   task,
   submission,
@@ -33,7 +37,7 @@ export default function StudentForm({
         setBusy(true);
         setError('');
         try {
-          if (task.fields?.some((field) => ['FILE', 'PHOTO'].includes(field.type))) {
+          if (task.fields?.some((field) => ATTACHMENT_FIELD_TYPES.includes(field.type))) {
             const retained = (submission?.attachments || []).filter(
               (file) =>
                 Array.isArray(answers[file.fieldId]) &&
@@ -44,7 +48,8 @@ export default function StudentForm({
                 .flat()
                 .reduce((sum, file) => sum + file.size, 0) +
               retained.reduce((sum, file) => sum + file.size, 0);
-            if (total > MAX_SUBMISSION_BYTES) throw new Error('每次提交附件总大小不能超过30 MB');
+            if (total > MAX_SUBMISSION_BYTES)
+              throw new Error(`每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
             const form = new FormData();
             form.set('answers', JSON.stringify(answers));
             for (const [fieldId, selected] of Object.entries(files))
@@ -82,13 +87,39 @@ export default function StudentForm({
                 <span className="question-number">{i + 1}.</span> {f.label}
                 {f.required && <span className="required"> *</span>}
               </label>
-              {['FILE', 'PHOTO'].includes(f.type) ? (
+              {f.type === 'SIGNATURE' ? (
+                <>
+                  <AttachmentLinks
+                    previewLabel="查看签名"
+                    files={(submission?.attachments || []).filter(
+                      (file) =>
+                        file.fieldId === f.id && Array.isArray(value) && value.includes(file.id),
+                    )}
+                  />
+                  {!locked && (
+                    <SignaturePad
+                      id={f.id}
+                      label={f.label}
+                      disabled={busy}
+                      onChange={(file) => {
+                        setFiles((previous) => ({ ...previous, [f.id]: file ? [file] : [] }));
+                        setAnswers((previous) => ({ ...previous, [f.id]: [] }));
+                        setError('');
+                      }}
+                    />
+                  )}
+                  {files[f.id]?.length > 0 && (
+                    <p className="notice">签名已完成，确认提交后保存。需要修改时可清空重写。</p>
+                  )}
+                </>
+              ) : ['FILE', 'PHOTO'].includes(f.type) ? (
                 <>
                   <p className="muted">
                     {f.type === 'PHOTO'
                       ? '支持JPG、PNG、GIF、WebP照片，可从手机相册选择。'
                       : '支持PDF、Word、Excel、PPT、文本、图片和ZIP压缩包。'}
-                    每题最多5个文件，单个不超过10 MB，整份提交附件合计不超过30 MB。
+                    每题最多5个文件，单个不超过{MAX_FILE_MB} MB，整份提交附件合计不超过
+                    {MAX_SUBMISSION_MB} MB。未提交前可移除文件，再选择其他文件替换。
                   </p>
                   <AttachmentLinks
                     files={(submission?.attachments || []).filter(
@@ -129,7 +160,7 @@ export default function StudentForm({
                         return;
                       }
                       if (picked.some((file) => file.size <= 0 || file.size > MAX_FILE_BYTES)) {
-                        setError('单个文件须非空且不超过10 MB');
+                        setError(`单个文件须非空且不超过${MAX_FILE_MB} MB`);
                         return;
                       }
                       setFiles({ ...files, [f.id]: selected });

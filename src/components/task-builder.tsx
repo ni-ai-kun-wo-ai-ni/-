@@ -12,6 +12,7 @@ const types: Record<string, string> = {
   BOOLEAN: '是 / 否',
   FILE: '文件上传',
   PHOTO: '照片上传',
+  SIGNATURE: '手写签名',
 };
 type DraftField = { label: string; type: string; required: boolean; optionsText: string };
 const blank = (): DraftField => ({ label: '', type: 'TEXT', required: true, optionsText: '' });
@@ -207,11 +208,16 @@ export default function TaskBuilder({
             )}
             {['FILE', 'PHOTO'].includes(f.type) && (
               <p className="muted">
-                每题最多5个文件，单个不超过10 MB，整份提交附件合计不超过30 MB。
+                每题最多5个文件，单个不超过50 MB，整份提交附件合计不超过80 MB。
                 {f.type === 'PHOTO'
                   ? '照片支持JPG、PNG、GIF、WebP。'
                   : '支持常用文档、图片和ZIP压缩包。'}
                 提交后可在任务统计中查看和下载。
+              </p>
+            )}
+            {f.type === 'SIGNATURE' && (
+              <p className="muted">
+                学生可用鼠标或手指手写签名，支持清空重写。签名以图片保存，可在任务统计中查看和下载；每题保留一份签名。
               </p>
             )}
             <label className="check">

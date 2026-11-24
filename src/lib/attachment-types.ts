@@ -1,5 +1,9 @@
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
-export const MAX_SUBMISSION_BYTES = 30 * 1024 * 1024;
+export const MAX_FILE_MB = 50;
+export const MAX_SUBMISSION_MB = 80;
+export const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
+export const MAX_SUBMISSION_BYTES = MAX_SUBMISSION_MB * 1024 * 1024;
+export const MAX_SIGNATURE_BYTES = 1024 * 1024;
+export const ATTACHMENT_FIELD_TYPES: readonly string[] = ['FILE', 'PHOTO', 'SIGNATURE'];
 export const MAX_FIELD_FILES = 5;
 export const FILE_ACCEPT =
   '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.jpg,.jpeg,.png,.gif,.webp';

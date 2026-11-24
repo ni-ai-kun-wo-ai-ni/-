@@ -334,7 +334,7 @@ async function handle(req: NextRequest, ctx: Context) {
             ...fields.map((f) => {
               const answer = row.submission?.answers?.find((a) => a.fieldId === f.id);
               const value = answer ? JSON.parse(answer.value) : '';
-              if (['FILE', 'PHOTO'].includes(f.type) && Array.isArray(value)) {
+              if (['FILE', 'PHOTO', 'SIGNATURE'].includes(f.type) && Array.isArray(value)) {
                 const files = row.submission?.attachments || [];
                 return value
                   .map((id) => {

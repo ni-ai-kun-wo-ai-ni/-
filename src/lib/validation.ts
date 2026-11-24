@@ -11,6 +11,7 @@ export const fieldTypes = [
   'BOOLEAN',
   'FILE',
   'PHOTO',
+  'SIGNATURE',
 ] as const;
 export const taskSchema = z.object({
   title: z.string().trim().min(1).max(100),
@@ -48,9 +49,10 @@ export function validateAnswers(fields: FormField[], raw: unknown) {
     switch (field.type) {
       case 'FILE':
       case 'PHOTO':
+      case 'SIGNATURE':
         valid =
           Array.isArray(v) &&
-          v.length <= 5 &&
+          v.length <= (field.type === 'SIGNATURE' ? 1 : 5) &&
           v.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 100) &&
           new Set(v).size === v.length;
         break;

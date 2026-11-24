@@ -6,6 +6,8 @@ import { hash } from 'bcryptjs';
 import ExcelJS from 'exceljs';
 import { tokenHash } from '../src/lib/auth';
 import type { AttachmentInfo } from '../src/lib/attachment-types';
+import { MAX_FILE_BYTES, MAX_SUBMISSION_BYTES } from '../src/lib/attachment-types';
+import { readSubmission } from '../src/lib/attachments';
 
 const db = new PrismaClient();
 const base = process.env.TEST_BASE_URL || 'http://127.0.0.1:3000';
@@ -139,7 +141,7 @@ test('文件与照片：上传、下载、权限隔离、修改和级联清理',
       assert.equal(
         (
           await submit(id, student.cookie, answers, [
-            { ...docUpload, bytes: new Uint8Array(10 * 1024 * 1024 + 1) },
+            { ...docUpload, bytes: new Uint8Array(MAX_FILE_BYTES + 1) },
           ])
         ).status,
         413,
@@ -297,6 +299,114 @@ test('文件与照片：上传、下载、权限隔离、修改和级联清理',
       for (const file of documents)
         assert.equal((await request(`attachments/${file.id}`, teacher.cookie)).status, 404);
       assert.equal((await request(`attachments/${image.id}`, student.cookie)).status, 200);
+    });
+    await t.test('单个文件支持超过旧10MB上限，80MB总请求限制仍有效', async () => {
+      const largeTask = await db.collectionTask.create({
+        data: {
+          title: '大文件测试',
+          description: '',
+          gradeId,
+          creatorId: teacher.user.id,
+          deadline: new Date(Date.now() + 86400000),
+          status: 'OPEN',
+          targets: { create: { userId: student.user.id } },
+          fields: { create: { label: '大文件', type: 'FILE', required: true, position: 0 } },
+        },
+        include: { fields: true },
+      });
+      tasks.push(largeTask.id);
+      const upload = {
+        fieldId: largeTask.fields[0].id,
+        name: '大型资料.zip',
+        bytes: new Uint8Array(12 * 1024 * 1024),
+      };
+      assert.equal((await submit(largeTask.id, student.cookie, {}, [upload])).status, 200);
+      const saved = await db.attachment.findFirstOrThrow({ where: { taskId: largeTask.id } });
+      assert.equal(saved.size, upload.bytes.length);
+      const downloaded = await request(`attachments/${saved.id}`, teacher.cookie);
+      assert.equal(downloaded.status, 200);
+      assert.equal((await downloaded.arrayBuffer()).byteLength, upload.bytes.length);
+      await assert.rejects(
+        readSubmission(
+          new Request(`${base}/api/tasks/${id}/submit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'multipart/form-data; boundary=test',
+              'Content-Length': String(MAX_SUBMISSION_BYTES + 128 * 1024 + 1),
+            },
+            body: 'x',
+          }),
+          task.fields,
+        ),
+        (error: unknown) =>
+          !!error && typeof error === 'object' && 'status' in error && error.status === 413,
+      );
+    });
+    await t.test('手写签名支持必填、预览下载、重签替换，并拒绝伪造或多份签名', async () => {
+      const signedTask = await db.collectionTask.create({
+        data: {
+          title: '签名测试',
+          description: '',
+          gradeId,
+          creatorId: teacher.user.id,
+          deadline: new Date(Date.now() + 86400000),
+          status: 'OPEN',
+          targets: { create: [{ userId: student.user.id }, { userId: other.user.id }] },
+          fields: { create: { label: '本人签名', type: 'SIGNATURE', required: true, position: 0 } },
+        },
+        include: { fields: true },
+      });
+      tasks.push(signedTask.id);
+      const field = signedTask.fields[0];
+      const signature = { fieldId: field.id, name: '手写签名.png', bytes: png };
+      assert.equal((await submit(signedTask.id, student.cookie, {})).status, 400);
+      assert.equal(
+        (
+          await submit(signedTask.id, student.cookie, {}, [
+            { ...signature, bytes: Buffer.from('伪造签名') },
+          ])
+        ).status,
+        400,
+      );
+      assert.equal(
+        (await submit(signedTask.id, student.cookie, {}, [signature, signature])).status,
+        400,
+      );
+      const tooLarge = Buffer.alloc(1024 * 1024 + 1);
+      png.copy(tooLarge);
+      assert.equal(
+        (await submit(signedTask.id, student.cookie, {}, [{ ...signature, bytes: tooLarge }]))
+          .status,
+        400,
+      );
+      assert.equal(await db.attachment.count({ where: { taskId: signedTask.id } }), 0);
+      assert.equal((await submit(signedTask.id, student.cookie, {}, [signature])).status, 200);
+      const saved = await db.attachment.findFirstOrThrow({ where: { taskId: signedTask.id } });
+      const viewed = await request(`attachments/${saved.id}?preview=1`, teacher.cookie);
+      assert.equal(viewed.status, 200);
+      assert.equal(viewed.headers.get('content-type'), 'image/png');
+      assert.deepEqual(Buffer.from(await viewed.arrayBuffer()), png);
+      assert.equal((await request(`attachments/${saved.id}`, other.cookie)).status, 403);
+      assert.equal(
+        (await submit(signedTask.id, other.cookie, { [field.id]: [saved.id] })).status,
+        403,
+      );
+      assert.equal((await submit(signedTask.id, student.cookie, { [field.id]: [] })).status, 400);
+      assert.equal((await request(`attachments/${saved.id}`, teacher.cookie)).status, 200);
+      const report = await (await request(`tasks/${signedTask.id}/report`, teacher.cookie)).json();
+      assert.equal(report.task.fields[0].type, 'SIGNATURE');
+      assert.equal(
+        report.rows.find((row: { id: string }) => row.id === student.user.id).submission.attachments
+          .length,
+        1,
+      );
+      assert.equal(
+        (await submit(signedTask.id, student.cookie, {}, [{ ...signature, name: '重新签名.png' }]))
+          .status,
+        200,
+      );
+      assert.equal((await request(`attachments/${saved.id}`, teacher.cookie)).status, 404);
+      assert.equal(await db.attachment.count({ where: { taskId: signedTask.id } }), 1);
     });
     await t.test('删除学生或任务清理对应附件，其他学生附件保留', async () => {
       assert.equal((await submit(id, other.cookie, answers, [docUpload])).status, 200);
