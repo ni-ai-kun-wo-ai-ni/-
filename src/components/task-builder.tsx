@@ -10,6 +10,8 @@ const types: Record<string, string> = {
   CHECKBOX: '多选',
   DATE: '日期',
   BOOLEAN: '是 / 否',
+  FILE: '文件上传',
+  PHOTO: '照片上传',
 };
 type DraftField = { label: string; type: string; required: boolean; optionsText: string };
 const blank = (): DraftField => ({ label: '', type: 'TEXT', required: true, optionsText: '' });
@@ -202,6 +204,15 @@ export default function TaskBuilder({
                   rows={3}
                 />
               </label>
+            )}
+            {['FILE', 'PHOTO'].includes(f.type) && (
+              <p className="muted">
+                每题最多5个文件，单个不超过10 MB，整份提交附件合计不超过30 MB。
+                {f.type === 'PHOTO'
+                  ? '照片支持JPG、PNG、GIF、WebP。'
+                  : '支持常用文档、图片和ZIP压缩包。'}
+                提交后可在任务统计中查看和下载。
+              </p>
             )}
             <label className="check">
               <input

@@ -27,6 +27,7 @@ export type Task = {
   submissions?: { submittedAt: string; updatedAt: string }[];
 };
 export type Submission = {
+  attachments?: import('./attachment-types').AttachmentInfo[];
   updatedAt: string;
   submittedAt: string;
   answers?: { fieldId: string; value: string }[];

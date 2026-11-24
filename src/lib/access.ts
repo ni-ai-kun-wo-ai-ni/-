@@ -1,6 +1,7 @@
 import type { User } from '@prisma/client';
 import { db } from './db';
 import { HttpError } from './auth';
+import { attachmentSelect } from './attachment-types';
 export const publicUser = {
   id: true,
   username: true,
@@ -57,10 +58,33 @@ export async function taskReport(user: User, taskId: string, requestedClass?: st
     where: { taskId, userId: { in: students.map((s) => s.id) } },
     include: { answers: canView },
   });
-  const rows = students.map((s) => ({
-    ...s,
-    submission: submissions.find((sub) => sub.userId === s.id) ?? null,
-  }));
+  const files = canView
+    ? await db.attachment.findMany({
+        where: { taskId, userId: { in: students.map((s) => s.id) } },
+        select: { ...attachmentSelect, userId: true },
+      })
+    : [];
+  const rows = students.map((student) => {
+    const submission = submissions.find((sub) => sub.userId === student.id);
+    return {
+      ...student,
+      submission: submission
+        ? {
+            ...submission,
+            ...(canView
+              ? {
+                  attachments: files
+                    .filter((file) => file.userId === student.id)
+                    .map(({ userId: _userId, ...info }) => {
+                      void _userId;
+                      return info;
+                    }),
+                }
+              : {}),
+          }
+        : null,
+    };
+  });
   const { targets: _targets, ...info } = task;
   void _targets;
   return {

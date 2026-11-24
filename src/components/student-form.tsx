@@ -1,6 +1,14 @@
 'use client';
 import { useState } from 'react';
 import { api, dateText, type Submission, type Task } from '@/lib/types';
+import {
+  FILE_ACCEPT,
+  PHOTO_ACCEPT,
+  MAX_FIELD_FILES,
+  MAX_FILE_BYTES,
+  MAX_SUBMISSION_BYTES,
+} from '@/lib/attachment-types';
+import AttachmentLinks from './attachment-links';
 export default function StudentForm({
   task,
   submission,
@@ -15,6 +23,7 @@ export default function StudentForm({
   );
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState<Record<string, File[]>>({});
   const locked = task.displayStatus !== '收集中' || (!!submission && !task.allowEdit);
   return (
     <form
@@ -24,7 +33,29 @@ export default function StudentForm({
         setBusy(true);
         setError('');
         try {
-          await api(`tasks/${task.id}/submit`, answers);
+          if (task.fields?.some((field) => ['FILE', 'PHOTO'].includes(field.type))) {
+            const retained = (submission?.attachments || []).filter(
+              (file) =>
+                Array.isArray(answers[file.fieldId]) &&
+                (answers[file.fieldId] as string[]).includes(file.id),
+            );
+            const total =
+              Object.values(files)
+                .flat()
+                .reduce((sum, file) => sum + file.size, 0) +
+              retained.reduce((sum, file) => sum + file.size, 0);
+            if (total > MAX_SUBMISSION_BYTES) throw new Error('每次提交附件总大小不能超过30 MB');
+            const form = new FormData();
+            form.set('answers', JSON.stringify(answers));
+            for (const [fieldId, selected] of Object.entries(files))
+              for (const file of selected) form.append(`files:${fieldId}`, file);
+            const response = await fetch(`/api/tasks/${task.id}/submit`, {
+              method: 'POST',
+              body: form,
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || '提交失败');
+          } else await api(`tasks/${task.id}/submit`, answers);
           done();
         } catch (e) {
           setError((e as Error).message);
@@ -51,7 +82,79 @@ export default function StudentForm({
                 <span className="question-number">{i + 1}.</span> {f.label}
                 {f.required && <span className="required"> *</span>}
               </label>
-              {['TEXT', 'NUMBER', 'DATE'].includes(f.type) ? (
+              {['FILE', 'PHOTO'].includes(f.type) ? (
+                <>
+                  <p className="muted">
+                    {f.type === 'PHOTO'
+                      ? '支持JPG、PNG、GIF、WebP照片，可从手机相册选择。'
+                      : '支持PDF、Word、Excel、PPT、文本、图片和ZIP压缩包。'}
+                    每题最多5个文件，单个不超过10 MB，整份提交附件合计不超过30 MB。
+                  </p>
+                  <AttachmentLinks
+                    files={(submission?.attachments || []).filter(
+                      (file) =>
+                        file.fieldId === f.id && Array.isArray(value) && value.includes(file.id),
+                    )}
+                  />
+                  {!locked &&
+                    (submission?.attachments || [])
+                      .filter(
+                        (file) =>
+                          file.fieldId === f.id && Array.isArray(value) && value.includes(file.id),
+                      )
+                      .map((file) => (
+                        <button
+                          key={file.id}
+                          type="button"
+                          className="text-button danger"
+                          onClick={() => change((value as string[]).filter((id) => id !== file.id))}
+                        >
+                          移除 {file.name}
+                        </button>
+                      ))}
+                  <input
+                    id={f.id}
+                    type="file"
+                    multiple
+                    accept={f.type === 'PHOTO' ? PHOTO_ACCEPT : FILE_ACCEPT}
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files || []);
+                      e.target.value = '';
+                      const selected = [...(files[f.id] || []), ...picked];
+                      if (
+                        selected.length + (Array.isArray(value) ? value.length : 0) >
+                        MAX_FIELD_FILES
+                      ) {
+                        setError('每个上传字段最多5个文件，请先移除多余文件');
+                        return;
+                      }
+                      if (picked.some((file) => file.size <= 0 || file.size > MAX_FILE_BYTES)) {
+                        setError('单个文件须非空且不超过10 MB');
+                        return;
+                      }
+                      setFiles({ ...files, [f.id]: selected });
+                      setError('');
+                    }}
+                  />
+                  {(files[f.id] || []).map((file, index) => (
+                    <div className="attachment-pending" key={`${file.name}-${index}`}>
+                      <span>{file.name}（待提交）</span>
+                      <button
+                        type="button"
+                        className="text-button danger"
+                        onClick={() =>
+                          setFiles({
+                            ...files,
+                            [f.id]: files[f.id].filter((_, position) => position !== index),
+                          })
+                        }
+                      >
+                        移除
+                      </button>
+                    </div>
+                  ))}
+                </>
+              ) : ['TEXT', 'NUMBER', 'DATE'].includes(f.type) ? (
                 <input
                   id={f.id}
                   type={f.type === 'NUMBER' ? 'number' : f.type === 'DATE' ? 'date' : 'text'}

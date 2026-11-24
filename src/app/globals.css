@@ -56,6 +56,20 @@
 .import-dialog {
   width: min(100%, 900px);
 }
+.attachment-list > div,
+.attachment-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.attachment-list a {
+  color: var(--green);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
 .import-preview {
   max-height: 360px;
   overflow: auto;

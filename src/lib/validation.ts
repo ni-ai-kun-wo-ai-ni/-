@@ -9,6 +9,8 @@ export const fieldTypes = [
   'CHECKBOX',
   'DATE',
   'BOOLEAN',
+  'FILE',
+  'PHOTO',
 ] as const;
 export const taskSchema = z.object({
   title: z.string().trim().min(1).max(100),
@@ -44,6 +46,14 @@ export function validateAnswers(fields: FormField[], raw: unknown) {
     const options: string[] = JSON.parse(field.options);
     let valid = false;
     switch (field.type) {
+      case 'FILE':
+      case 'PHOTO':
+        valid =
+          Array.isArray(v) &&
+          v.length <= 5 &&
+          v.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 100) &&
+          new Set(v).size === v.length;
+        break;
       case 'TEXT':
       case 'TEXTAREA':
         valid =

@@ -42,6 +42,7 @@ model User {
   sessions           Session[]
   submissions        Submission[]
   tasks              CollectionTask[]
+  attachments        Attachment[]
 }
 
 model Session {
@@ -67,6 +68,7 @@ model CollectionTask {
   fields         FormField[]
   targets        TaskTarget[]
   submissions    Submission[]
+  attachments    Attachment[]
 }
 
 model TaskTarget {
@@ -87,6 +89,7 @@ model FormField {
   options  String             @default("[]")
   position Int
   answers  SubmissionAnswer[]
+  attachments Attachment[]
 }
 
 model Submission {
@@ -111,4 +114,21 @@ model SubmissionAnswer {
   value        String
 
   @@unique([submissionId, fieldId])
+}
+
+model Attachment {
+  id        String @id @default(cuid())
+  taskId    String
+  task      CollectionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fieldId   String
+  field     FormField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  mime      String
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  @@index([taskId, userId])
 }

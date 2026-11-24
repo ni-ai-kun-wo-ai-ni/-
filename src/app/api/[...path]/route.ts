@@ -12,7 +12,14 @@ import {
   teacherOnly,
   tokenHash,
 } from '@/lib/auth';
-import { accessibleTask, isOpen, publicUser, taskReport, taskStatus } from '@/lib/access';
+import { accessibleTask, publicUser, taskReport, taskStatus } from '@/lib/access';
+import {
+  assertSubmittable,
+  downloadAttachment,
+  prepareAttachments,
+  readSubmission,
+} from '@/lib/attachments';
+import { attachmentSelect, attachmentUrl } from '@/lib/attachment-types';
 import { taskSchema, validateAnswers } from '@/lib/validation';
 import { createStudent, deleteStudent, transferStudent, setStudentIdentity } from '@/lib/students';
 import { completeInitialPassword } from '@/lib/initial-password';
@@ -79,6 +86,13 @@ async function handle(req: NextRequest, ctx: Context) {
         return json({ user: me, tasks: [], officerTasks: [], students: [], grades: [] });
       }
       throw new HttpError(403, '请先设置自己的密码，再使用系统');
+    }
+    if (path.length === 2 && path[0] === 'attachments' && !write) {
+      return await downloadAttachment(
+        user,
+        path[1],
+        req.nextUrl.searchParams.get('preview') === '1',
+      );
     }
     if (key === 'teachers') {
       return json(write ? await createTeacher(user, await req.json()) : await listTeachers(user));
@@ -320,6 +334,18 @@ async function handle(req: NextRequest, ctx: Context) {
             ...fields.map((f) => {
               const answer = row.submission?.answers?.find((a) => a.fieldId === f.id);
               const value = answer ? JSON.parse(answer.value) : '';
+              if (['FILE', 'PHOTO'].includes(f.type) && Array.isArray(value)) {
+                const files = row.submission?.attachments || [];
+                return value
+                  .map((id) => {
+                    const file = files.find((file) => file.id === id);
+                    return file
+                      ? `${file.name}: ${process.env.PUBLIC_ORIGIN || req.nextUrl.origin}${attachmentUrl(file.id)}`
+                      : '';
+                  })
+                  .filter(Boolean)
+                  .join('\n');
+              }
               // ExcelJS 把字符串写成文本，不把用户输入解释为 Excel 公式。
               return Array.isArray(value) ? value.join('、') : String(value);
             }),
@@ -347,26 +373,45 @@ async function handle(req: NextRequest, ctx: Context) {
           where: { taskId_userId: { taskId, userId: user.id } },
           include: { answers: true },
         });
-        return json({ task: { ...task, displayStatus: taskStatus(task) }, submission });
+        const attachments = submission
+          ? await db.attachment.findMany({
+              where: { taskId, userId: user.id },
+              select: attachmentSelect,
+            })
+          : [];
+        return json({
+          task: { ...task, displayStatus: taskStatus(task) },
+          submission: submission ? { ...submission, attachments } : null,
+        });
       }
       if (action === 'submit' && write) {
         if (user.role !== 'STUDENT') throw new HttpError(403, '只有学生可以填写');
-        const answers = validateAnswers(task.fields, await req.json());
-        await db.$transaction(async (tx) => {
-          const fresh = await tx.collectionTask.findUniqueOrThrow({ where: { id: taskId } });
-          if (!isOpen(fresh)) throw new HttpError(400, '任务未开放或已截止');
-          const existing = await tx.submission.findUnique({
-            where: { taskId_userId: { taskId, userId: user.id } },
-          });
-          if (existing && !fresh.allowEdit) throw new HttpError(403, '此任务不允许修改提交');
-          if (existing)
-            await tx.submissionAnswer.deleteMany({ where: { submissionId: existing.id } });
-          await tx.submission.upsert({
-            where: { taskId_userId: { taskId, userId: user.id } },
-            create: { taskId, userId: user.id, answers: { create: answers } },
-            update: { updatedAt: new Date(), answers: { create: answers } },
-          });
-        });
+        const { raw, uploads } = await readSubmission(req, task.fields);
+        await db.$transaction(
+          async (tx) => {
+            const existing = await assertSubmittable(tx, taskId, user.id);
+            const { input, retained } = await prepareAttachments(
+              tx,
+              taskId,
+              user.id,
+              task.fields,
+              raw,
+              uploads,
+            );
+            const answers = validateAnswers(task.fields, input);
+            if (existing)
+              await tx.submissionAnswer.deleteMany({ where: { submissionId: existing.id } });
+            await tx.submission.upsert({
+              where: { taskId_userId: { taskId, userId: user.id } },
+              create: { taskId, userId: user.id, answers: { create: answers } },
+              update: { updatedAt: new Date(), answers: { create: answers } },
+            });
+            await tx.attachment.deleteMany({
+              where: { taskId, userId: user.id, id: { notIn: retained } },
+            });
+          },
+          { timeout: 15000 },
+        );
         return json({ ok: true });
       }
     }

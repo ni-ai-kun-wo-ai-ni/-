@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { dateText, type Report } from '@/lib/types';
+import AttachmentLinks from './attachment-links';
 export default function ReportView({
   report,
   filterClass,
@@ -176,6 +177,17 @@ export default function ReportView({
                     report.task.fields?.map((f) => {
                       const answer = r.submission?.answers?.find((a) => a.fieldId === f.id);
                       const v = answer ? JSON.parse(answer.value) : '—';
+                      if (['FILE', 'PHOTO'].includes(f.type)) {
+                        const files = (r.submission?.attachments || []).filter(
+                          (file) =>
+                            file.fieldId === f.id && Array.isArray(v) && v.includes(file.id),
+                        );
+                        return (
+                          <td key={f.id}>
+                            {files.length ? <AttachmentLinks files={files} /> : '—'}
+                          </td>
+                        );
+                      }
                       return <td key={f.id}>{Array.isArray(v) ? v.join('、') : v || '—'}</td>;
                     })}
                   <td>{r.submission ? dateText(r.submission.updatedAt) : '—'}</td>
