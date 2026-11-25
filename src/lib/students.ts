@@ -12,7 +12,16 @@ const studentSchema = z
       .string()
       .trim()
       .regex(/^[A-Za-z0-9_-]{1,32}$/),
-    classId: z.string().min(1),
+    classId: z
+      .string()
+      .trim()
+      .nullish()
+      .transform((value) => value || null),
+    gradeId: z
+      .string()
+      .trim()
+      .nullish()
+      .transform((value) => value || null),
     isClassOfficer: z.boolean(),
   })
   .strict();
@@ -23,12 +32,20 @@ export async function createStudent(actor: User, raw: unknown) {
   const passwordHash = await hash('123456', 12);
   try {
     return await db.$transaction(async (tx) => {
-      if (!(await tx.class.findUnique({ where: { id: input.classId } })))
-        throw new HttpError(400, '请选择有效的班级');
+      const cls = input.classId
+        ? await tx.class.findUnique({ where: { id: input.classId } })
+        : null;
+      if (input.classId && !cls) throw new HttpError(400, '请选择有效的班级');
+      if (input.gradeId && !(await tx.grade.findUnique({ where: { id: input.gradeId } })))
+        throw new HttpError(400, '请选择有效的年级');
+      if (cls && input.gradeId && cls.gradeId !== input.gradeId)
+        throw new HttpError(400, '班级不属于所选年级');
+      if (input.isClassOfficer && !cls) throw new HttpError(400, '请先分配班级，再设为班干部');
       // 身份固定为学生，绝不接受客户端传入教师 role。
       return tx.user.create({
         data: {
           ...input,
+          gradeId: cls ? null : input.gradeId,
           username: input.studentNumber,
           role: 'STUDENT',
           passwordHash,

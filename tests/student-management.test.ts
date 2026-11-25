@@ -35,6 +35,7 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
   );
   const createdIds: string[] = [];
   const taskIds: string[] = [];
+  const extraIds: string[] = [];
   try {
     const teacher = await login('teacher001');
     const monitor = await login('monitor001');
@@ -71,6 +72,79 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
       );
       assert.equal((await request('students', teacher, input, 'https://evil.example')).status, 403);
     });
+    await t.test('单个添加支持省略、空值或null归属，以及只归属年级，保持首次改密', async () => {
+      const placements = [
+        {},
+        { gradeId: null, classId: null },
+        { gradeId: '', classId: '' },
+        { gradeId: bootstrap.grades[0].id },
+        { gradeId: bootstrap.grades[0].id, classId: null },
+      ];
+      for (const [index, placement] of placements.entries()) {
+        const number = 'single_' + token + '_' + index;
+        const response = await request('students', teacher, {
+          name: '虚构未分班同学',
+          studentNumber: number,
+          isClassOfficer: false,
+          ...placement,
+        });
+        assert.equal(response.status, 200);
+        const saved: Person = await response.json();
+        createdIds.push(saved.id);
+        assert.equal(saved.classId, null);
+        assert.equal(saved.gradeId, ('gradeId' in placement && placement.gradeId) || null);
+        assert.equal(saved.username, number);
+        assert.equal(saved.mustChangePassword, true);
+        assert.equal(saved.isClassOfficer, false);
+        assert.equal(saved.isStudentOfficer, false);
+        const stored = await db.user.findUniqueOrThrow({ where: { id: saved.id } });
+        assert.ok(await compare('123456', stored.passwordHash));
+        assert.equal(await db.taskTarget.count({ where: { userId: saved.id } }), 0);
+      }
+      const home: Bootstrap = await (await request('bootstrap', teacher)).json();
+      assert.ok(home.students.some((s) => s.id === createdIds[0] && !s.classId && !s.gradeId));
+    });
+    await t.test('单个添加校验有效归属和年级班级一致性，未分班不能授予班干部', async () => {
+      const temporaryGrade = await db.grade.create({ data: { name: '单个添加归属测试' + token } });
+      try {
+        for (const placement of [
+          { gradeId: 'missing-grade', classId: null, isClassOfficer: false },
+          { gradeId: temporaryGrade.id, classId: input.classId, isClassOfficer: false },
+          { classId: null, isClassOfficer: true },
+          { gradeId: bootstrap.grades[0].id, classId: '', isClassOfficer: true },
+          { gradeId: 123, classId: null, isClassOfficer: false },
+        ]) {
+          assert.equal(
+            (
+              await request('students', teacher, {
+                name: '错误归属',
+                studentNumber: 'bad_' + token,
+                ...placement,
+              })
+            ).status,
+            400,
+          );
+        }
+        assert.equal(await db.user.count({ where: { username: 'bad_' + token } }), 0);
+      } finally {
+        await db.grade.delete({ where: { id: temporaryGrade.id } });
+      }
+    });
+    await t.test('同时选择年级和班级时以班级归属为准，不重复保存独立年级', async () => {
+      const response = await request('students', teacher, {
+        ...input,
+        studentNumber: 'assigned_' + token,
+        gradeId: bootstrap.grades[0].id,
+        isClassOfficer: false,
+      });
+      assert.equal(response.status, 200);
+      const saved: Person = await response.json();
+      createdIds.push(saved.id);
+      assert.equal(saved.classId, input.classId);
+      assert.equal(saved.gradeId, null);
+      assert.equal(saved.class?.gradeId, bootstrap.grades[0].id);
+    });
+    extraIds.push(...createdIds.splice(0));
     let person: Person;
     await t.test('教师可创建学生和班干部，密码哈希保存且响应不泄露密码', async () => {
       const response = await request('students', teacher, input);
@@ -199,7 +273,7 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
   } finally {
     await db.submission.deleteMany({ where: { taskId: { in: taskIds } } });
     await db.collectionTask.deleteMany({ where: { id: { in: taskIds } } });
-    await db.user.deleteMany({ where: { id: { in: createdIds } } });
+    await db.user.deleteMany({ where: { id: { in: [...createdIds, ...extraIds] } } });
     await db.$disconnect();
   }
 });

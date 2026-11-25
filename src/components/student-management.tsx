@@ -31,6 +31,8 @@ export default function StudentManagement({
   const [notice, setNotice] = useState('');
   const [assignmentFilter, setAssignmentFilter] = useState('all');
   const [chosenGrade, setChosenGrade] = useState('');
+  const [chosenClass, setChosenClass] = useState('');
+  const [newClassOfficer, setNewClassOfficer] = useState(false);
   const [newStudentNumber, setNewStudentNumber] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
   const students = data.students.filter(
@@ -48,7 +50,9 @@ export default function StudentManagement({
   const openAdd = () => {
     setError('');
     setNotice('');
-    setChosenGrade(gradeFilter || data.grades[0]?.id || '');
+    setChosenGrade(gradeFilter || '');
+    setChosenClass('');
+    setNewClassOfficer(false);
     setDeleting(null);
     setTransferring(null);
     setSettingIdentity(null);
@@ -70,7 +74,7 @@ export default function StudentManagement({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <button disabled={busy || !data.grades.some((g) => g.classes.length)} onClick={openAdd}>
+          <button disabled={busy} onClick={openAdd}>
             ＋ 添加学生
           </button>
           <button
@@ -281,12 +285,15 @@ export default function StudentManagement({
                   const student = await api<Person>('students', {
                     name: form.get('name'),
                     studentNumber: form.get('studentNumber'),
-                    classId: form.get('classId'),
-                    isClassOfficer: form.get('isClassOfficer') === 'on',
+                    gradeId: chosenGrade || null,
+                    classId: chosenClass || null,
+                    isClassOfficer: newClassOfficer,
                   });
                   formRef.current?.reset();
                   setAdding(false);
                   setSearch('');
+                  setGradeFilter(student.class?.gradeId || student.gradeId || '');
+                  setAssignmentFilter('all');
                   setNotice(
                     `${student.name} 的账号 ${student.username} 已创建，初始密码为 123456，首次登录需改密。`,
                   );
@@ -323,8 +330,16 @@ export default function StudentManagement({
                 </div>
                 <div className="form-grid">
                   <label>
-                    年级
-                    <select value={chosenGrade} onChange={(e) => setChosenGrade(e.target.value)}>
+                    年级（选填）
+                    <select
+                      value={chosenGrade}
+                      onChange={(e) => {
+                        setChosenGrade(e.target.value);
+                        setChosenClass('');
+                        setNewClassOfficer(false);
+                      }}
+                    >
+                      <option value="">暂不分配年级</option>
                       {data.grades.map((g) => (
                         <option value={g.id} key={g.id}>
                           {g.name}
@@ -333,11 +348,17 @@ export default function StudentManagement({
                     </select>
                   </label>
                   <label>
-                    班级
-                    <select key={chosenGrade} name="classId" required defaultValue="">
-                      <option value="" disabled>
-                        请选择班级
-                      </option>
+                    班级（选填）
+                    <select
+                      name="classId"
+                      value={chosenClass}
+                      disabled={!chosenGrade}
+                      onChange={(e) => {
+                        setChosenClass(e.target.value);
+                        if (!e.target.value) setNewClassOfficer(false);
+                      }}
+                    >
+                      <option value="">暂不分配班级</option>
                       {grade?.classes.map((c) => (
                         <option value={c.id} key={c.id}>
                           {c.name}
@@ -346,6 +367,13 @@ export default function StudentManagement({
                     </select>
                   </label>
                 </div>
+                <p className="notice">
+                  {chosenClass
+                    ? `归属：${grade?.name} · ${grade?.classes.find((c) => c.id === chosenClass)?.name}`
+                    : chosenGrade
+                      ? `归属：${grade?.name} · 暂未分班，可之后分配班级。`
+                      : '暂不分配年级和班级，可先创建账号，之后再分配。'}
+                </p>
                 <label>
                   登录账号
                   <input
@@ -360,8 +388,14 @@ export default function StudentManagement({
                   <input value="123456" readOnly />
                 </label>
                 <label className="check">
-                  <input name="isClassOfficer" type="checkbox" />
-                  设为班干部（拥有本班管理权限）
+                  <input
+                    name="isClassOfficer"
+                    type="checkbox"
+                    disabled={!chosenClass}
+                    checked={newClassOfficer}
+                    onChange={(e) => setNewClassOfficer(e.target.checked)}
+                  />
+                  设为班干部（需先分配班级）
                 </label>
               </fieldset>
               {error && (
