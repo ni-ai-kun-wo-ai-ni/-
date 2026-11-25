@@ -21,6 +21,11 @@ export const taskSchema = z.object({
   allowEdit: z.boolean(),
   officerCanView: z.boolean(),
   targetIds: z.array(z.string()).max(2000).optional(),
+  managerIds: z
+    .array(z.string().min(1))
+    .max(200)
+    .refine((ids) => new Set(ids).size === ids.length, '共同管理人不能重复')
+    .optional(),
   fields: z
     .array(
       z.object({

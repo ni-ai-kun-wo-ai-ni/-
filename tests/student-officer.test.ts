@@ -111,10 +111,7 @@ test('学生干部：项目归属隔离、全年级发布、人员隔离、即�
     });
     await t.test('仍可填写他人发布给自己的任务，但不能查看结果或管理任务', async () => {
       assert.equal((await request(`tasks/${taskId}`, other.cookie)).status, 200);
-      assert.equal(
-        (await request(`tasks/${taskId}/submit`, other.cookie, {})).status,
-        200,
-      );
+      assert.equal((await request(`tasks/${taskId}/submit`, other.cookie, {})).status, 200);
       assert.equal((await request(`tasks/${taskId}/report`, other.cookie)).status, 403);
       const report = await (await request(`tasks/${taskId}/report`, owner.cookie)).json();
       assert.equal(report.total, 4);
@@ -181,6 +178,131 @@ test('学生干部：项目归属隔离、全年级发布、人员隔离、即�
           .status,
         200,
       );
+    });
+    let sharedId = '',
+      excludedId = '',
+      fileId = '';
+    await t.test('共同管理人只可选择其他有效学生干部，非法名单不创建项目', async () => {
+      const count = await db.collectionTask.count({ where: { creatorId: owner.user.id } });
+      for (const managerIds of [
+        [student.user.id],
+        [teacher.user.id],
+        [owner.user.id],
+        ['missing'],
+        [other.user.id, other.user.id],
+      ]) {
+        assert.equal((await request('tasks', owner.cookie, { ...input, managerIds })).status, 400);
+      }
+      assert.equal(await db.collectionTask.count({ where: { creatorId: owner.user.id } }), count);
+      const home = await (await request('bootstrap', owner.cookie)).json();
+      assert.ok(home.managerCandidates.some((x: { id: string }) => x.id === other.user.id));
+      assert.ok(
+        !home.managerCandidates.some((x: { id: string }) =>
+          [teacher.user.id, owner.user.id, student.user.id].includes(x.id),
+        ),
+      );
+    });
+    await t.test(
+      '被选中的干部可管理非本人且未指定自己填写的草稿与结果，授权不扩展到其他任务',
+      async () => {
+        for (const shared of [true, false]) {
+          const response = await request('tasks', owner.cookie, {
+            ...input,
+            targetIds: [student.user.id],
+            managerIds: shared ? [other.user.id] : [],
+          });
+          assert.equal(response.status, 200);
+          const id = (await response.json()).id;
+          taskIds.push(id);
+          if (shared) sharedId = id;
+          else excludedId = id;
+        }
+        const home = await (await request('bootstrap', other.cookie)).json();
+        assert.ok(home.managedTasks.some((x: { id: string }) => x.id === sharedId));
+        assert.ok(!home.managedTasks.some((x: { id: string }) => x.id === excludedId));
+        assert.ok(!home.tasks.some((x: { id: string }) => x.id === sharedId));
+        for (const suffix of ['', '/report', '/export']) {
+          assert.equal((await request('tasks/' + sharedId + suffix, other.cookie)).status, 200);
+          assert.equal((await request('tasks/' + excludedId + suffix, other.cookie)).status, 403);
+        }
+        const outsider = await actor('STUDENT', grade.classes[0].id, true);
+        for (const action of ['report', 'export'])
+          assert.equal(
+            (await request('tasks/' + sharedId + '/' + action, outsider.cookie)).status,
+            403,
+          );
+        for (const [action, body] of [
+          ['status', { status: 'OPEN' }],
+          ['deadline', { deadline: input.deadline }],
+          ['delete', { confirmTitle: input.title }],
+        ] as const)
+          assert.equal(
+            (await request('tasks/' + sharedId + '/' + action, outsider.cookie, body)).status,
+            403,
+          );
+        assert.equal(
+          (
+            await request('tasks/' + sharedId + '/deadline', other.cookie, {
+              deadline: input.deadline,
+            })
+          ).status,
+          200,
+        );
+        assert.equal(
+          (await request('tasks/' + sharedId + '/status', other.cookie, { status: 'OPEN' })).status,
+          200,
+        );
+        const field = await db.formField.findFirstOrThrow({ where: { taskId: sharedId } });
+        const file = await db.attachment.create({
+          data: {
+            taskId: sharedId,
+            userId: student.user.id,
+            fieldId: field.id,
+            name: 'shared.txt',
+            mime: 'text/plain',
+            size: 1,
+            data: Buffer.from('a'),
+          },
+        });
+        fileId = file.id;
+        assert.equal((await request('attachments/' + fileId, other.cookie)).status, 200);
+        assert.equal((await request('attachments/' + fileId, outsider.cookie)).status, 403);
+      },
+    );
+    await t.test('共同管理人同一会话即时撤权，名单不能让普通学生继续管理', async () => {
+      const identity = 'students/' + other.user.id + '/identity';
+      const body = {
+        fromClassId: other.user.classId,
+        isClassOfficer: false,
+        isStudentOfficer: false,
+      };
+      assert.equal((await request(identity, teacher.cookie, body)).status, 200);
+      for (const suffix of ['', '/report', '/export'])
+        assert.equal((await request('tasks/' + sharedId + suffix, other.cookie)).status, 403);
+      assert.equal((await request('attachments/' + fileId, other.cookie)).status, 403);
+      const home = await (await request('bootstrap', other.cookie)).json();
+      assert.deepEqual(home.managedTasks, []);
+      assert.equal(
+        (await request('tasks/' + sharedId + '/status', other.cookie, { status: 'CLOSED' })).status,
+        403,
+      );
+      assert.equal(
+        (await request(identity, teacher.cookie, { ...body, isStudentOfficer: true })).status,
+        200,
+      );
+      assert.equal(
+        (await request('tasks/' + sharedId + '/status', other.cookie, { status: 'CLOSED' })).status,
+        200,
+      );
+      assert.equal(
+        (
+          await request('tasks/' + sharedId + '/delete', other.cookie, {
+            confirmTitle: input.title,
+          })
+        ).status,
+        200,
+      );
+      assert.equal(await db.taskManager.count({ where: { taskId: sharedId } }), 0);
     });
     await t.test('删除学生干部账号时将项目交给教师，保留项目', async () => {
       const task = await db.collectionTask.create({

@@ -16,6 +16,7 @@ export type Person = {
 export type Field = { id: string; label: string; type: string; required: boolean; options: string };
 export type Task = {
   creatorId: string;
+  managers?: { userId: string }[];
   id: string;
   title: string;
   description: string;
@@ -40,6 +41,7 @@ export type Bootstrap = {
   officerTasks: Task[];
   managedTasks?: Task[];
   publisherStudents?: Pick<Person, 'id' | 'name' | 'studentNumber' | 'gradeId' | 'class'>[];
+  managerCandidates?: Pick<Person, 'id' | 'name' | 'studentNumber' | 'class'>[];
   students: Person[];
   grades: {
     id: string;

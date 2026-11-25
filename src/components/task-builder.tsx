@@ -28,6 +28,7 @@ export default function TaskBuilder({
   const [fields, setFields] = useState<DraftField[]>([blank()]);
   const [gradeId, setGrade] = useState(initialGradeId || data.grades[0]?.id || '');
   const [specific, setSpecific] = useState(false);
+  const [managerIds, setManagerIds] = useState<string[]>([]);
   const [targets, setTargets] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -46,6 +47,7 @@ export default function TaskBuilder({
             title: form.get('title'),
             description: form.get('description'),
             gradeId,
+            managerIds,
             deadline: beijingInputToIso(deadline),
             allowEdit: form.get('allowEdit') === 'on',
             officerCanView: form.get('officerCanView') === 'on',
@@ -116,6 +118,32 @@ export default function TaskBuilder({
             />
           </label>
         </div>
+        <fieldset className="panel">
+          <legend>共同管理人（选填）</legend>
+          <p className="muted">
+            选择一起负责的学生干部。共同管理人可查看草稿、全部结果和附件，导出、发布、结束、调整截止时间及删除此任务。未选中的学生干部没有此任务的管理权限。
+          </p>
+          {!(data.managerCandidates || []).length && (
+            <p className="muted">暂无其他学生干部，请先由老师设置身份。</p>
+          )}
+          {(data.managerCandidates || []).map((person) => (
+            <label key={person.id} className="check">
+              <input
+                type="checkbox"
+                checked={managerIds.includes(person.id)}
+                onChange={(e) =>
+                  setManagerIds(
+                    e.target.checked
+                      ? [...managerIds, person.id]
+                      : managerIds.filter((id) => id !== person.id),
+                  )
+                }
+              />
+              {person.name} · {person.studentNumber || '无学号'} ·{' '}
+              {person.class?.name || '暂未分班'}
+            </label>
+          ))}
+        </fieldset>
         <label className="check">
           <input type="checkbox" name="allowEdit" defaultChecked />
           截止前允许学生修改

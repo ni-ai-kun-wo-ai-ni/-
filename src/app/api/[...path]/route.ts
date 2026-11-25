@@ -117,6 +117,7 @@ async function handle(req: NextRequest, ctx: Context) {
             ? {}
             : { status: { not: 'DRAFT' }, targets: { some: { userId: user.id } } },
         include: {
+          managers: true,
           grade: true,
           submissions: {
             where: { userId: user.id },
@@ -138,6 +139,7 @@ async function handle(req: NextRequest, ctx: Context) {
               status: { not: 'DRAFT' },
               targets: { some: { userId: { in: classmates.map((s) => s.id) } } },
             },
+            include: { managers: true },
             orderBy: { createdAt: 'desc' },
           })
         : [];
@@ -160,11 +162,26 @@ async function handle(req: NextRequest, ctx: Context) {
           user.role === 'STUDENT' && user.isStudentOfficer
             ? (
                 await db.collectionTask.findMany({
-                  where: { creatorId: user.id },
+                  where: {
+                    OR: [{ creatorId: user.id }, { managers: { some: { userId: user.id } } }],
+                  },
+                  include: { managers: true },
                   orderBy: { createdAt: 'desc' },
                 })
               ).map((t) => ({ ...t, displayStatus: taskStatus(t) }))
             : [],
+        managerCandidates: canPublishTasks(user)
+          ? await db.user.findMany({
+              where: { role: 'STUDENT', isStudentOfficer: true, id: { not: user.id } },
+              select: {
+                id: true,
+                name: true,
+                studentNumber: true,
+                class: { select: { id: true, name: true, gradeId: true } },
+              },
+              orderBy: { studentNumber: 'asc' },
+            })
+          : [],
         publisherStudents:
           user.role === 'STUDENT' && user.isStudentOfficer
             ? await db.user.findMany({
@@ -265,24 +282,35 @@ async function handle(req: NextRequest, ctx: Context) {
         (input.targetIds && students.length !== new Set(input.targetIds).size)
       )
         throw new HttpError(400, '请选择本年级的有效学生');
-      const task = await db.collectionTask.create({
-        data: {
-          title: input.title,
-          description: input.description,
-          deadline: new Date(input.deadline),
-          gradeId: input.gradeId,
-          creatorId: user.id,
-          allowEdit: input.allowEdit,
-          officerCanView: input.officerCanView,
-          targets: { create: students.map((s) => ({ userId: s.id })) },
-          fields: {
-            create: input.fields.map((f, position) => ({
-              ...f,
-              options: JSON.stringify(f.options),
-              position,
-            })),
+      const task = await db.$transaction(async (tx) => {
+        const managerIds = input.managerIds || [];
+        if (managerIds.includes(user.id))
+          throw new HttpError(400, '创建人自动拥有管理权限，无需重复选择');
+        const managers = await tx.user.count({
+          where: { id: { in: managerIds }, role: 'STUDENT', isStudentOfficer: true },
+        });
+        if (managers !== managerIds.length)
+          throw new HttpError(400, '共同管理人必须是有效的学生干部，请刷新后重新选择');
+        return tx.collectionTask.create({
+          data: {
+            title: input.title,
+            description: input.description,
+            deadline: new Date(input.deadline),
+            gradeId: input.gradeId,
+            creatorId: user.id,
+            managers: { create: managerIds.map((userId) => ({ userId })) },
+            allowEdit: input.allowEdit,
+            officerCanView: input.officerCanView,
+            targets: { create: students.map((s) => ({ userId: s.id })) },
+            fields: {
+              create: input.fields.map((f, position) => ({
+                ...f,
+                options: JSON.stringify(f.options),
+                position,
+              })),
+            },
           },
-        },
+        });
       });
       return json({ id: task.id });
     }
@@ -297,7 +325,10 @@ async function handle(req: NextRequest, ctx: Context) {
         // 先删除提交（答案级联删除），再删除任务（字段和填写对象级联删除）。
         // 同一事务保证任一步失败时，任务与历史答案都不会被部分删除。
         await db.$transaction(async (tx) => {
-          const task = await tx.collectionTask.findUnique({ where: { id: taskId } });
+          const task = await tx.collectionTask.findUnique({
+            where: { id: taskId },
+            include: { managers: true },
+          });
           if (!task) throw new HttpError(404, '任务不存在或已被删除');
           if (!canManageTask(user, task)) throw new HttpError(403, '无权管理此任务');
           if (task.title !== confirmTitle) throw new HttpError(400, '任务名称不匹配，请重新核对');
@@ -315,7 +346,10 @@ async function handle(req: NextRequest, ctx: Context) {
           .parse(await req.json());
         // 状态检查和更新放在同一事务，避免并发发布覆盖手动截止。
         await db.$transaction(async (tx) => {
-          const old = await tx.collectionTask.findUnique({ where: { id: taskId } });
+          const old = await tx.collectionTask.findUnique({
+            where: { id: taskId },
+            include: { managers: true },
+          });
           if (!old) throw new HttpError(404, '任务不存在');
           if (!canManageTask(user, old)) throw new HttpError(403, '无权管理此任务');
           if (input.status === 'OPEN' && old.status !== 'DRAFT')

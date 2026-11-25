@@ -44,6 +44,7 @@ model User {
   submissions        Submission[]
   tasks              CollectionTask[]
   attachments        Attachment[]
+  managedTasks       TaskManager[]
 }
 
 model Session {
@@ -70,6 +71,17 @@ model CollectionTask {
   targets        TaskTarget[]
   submissions    Submission[]
   attachments    Attachment[]
+  managers       TaskManager[]
+}
+
+model TaskManager {
+  taskId String
+  userId String
+  task CollectionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+  @@index([userId])
 }
 
 model TaskTarget {

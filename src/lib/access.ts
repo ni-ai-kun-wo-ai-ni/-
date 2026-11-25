@@ -25,7 +25,7 @@ export const taskStatus = (task: { status: string; deadline: Date }) =>
 export async function accessibleTask(user: User, id: string) {
   const task = await db.collectionTask.findUnique({
     where: { id },
-    include: { fields: { orderBy: { position: 'asc' } } },
+    include: { managers: true, fields: { orderBy: { position: 'asc' } } },
   });
   if (!task) throw new HttpError(404, '任务不存在');
   if (!canManageTask(user, task)) {
@@ -40,7 +40,7 @@ export async function accessibleTask(user: User, id: string) {
 export async function taskReport(user: User, taskId: string, requestedClass?: string | null) {
   const task = await db.collectionTask.findUnique({
     where: { id: taskId },
-    include: { fields: { orderBy: { position: 'asc' } }, targets: true },
+    include: { managers: true, fields: { orderBy: { position: 'asc' } }, targets: true },
   });
   if (!task) throw new HttpError(404, '任务不存在');
   const manager = canManageTask(user, task);

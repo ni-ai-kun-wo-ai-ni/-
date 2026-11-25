@@ -1,3 +1,4 @@
+import { canManageTask } from './permissions';
 import type { FormField, Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
@@ -191,6 +192,7 @@ export async function downloadAttachment(actor: User, id: string, preview: boole
       task: {
         select: {
           creatorId: true,
+          managers: true,
           status: true,
           officerCanView: true,
           targets: { select: { userId: true } },
@@ -199,7 +201,7 @@ export async function downloadAttachment(actor: User, id: string, preview: boole
     },
   });
   if (!file) throw new HttpError(404, '附件不存在或已被删除');
-  if (actor.role !== 'TEACHER' && !(actor.isStudentOfficer && file.task.creatorId === actor.id)) {
+  if (!canManageTask(actor, file.task)) {
     if (file.userId === actor.id) await accessibleTask(actor, file.taskId);
     else if (
       !actor.isClassOfficer ||

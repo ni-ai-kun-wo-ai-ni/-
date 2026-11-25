@@ -75,7 +75,7 @@ export default function StudentIdentityDialog({
             学生干部（部门负责人，可兼任班干部）
           </label>
           <p className="notice">
-            学生干部可创建全年级项目，仅管理自己创建的项目及其答案、附件和导出；不能管理人员。取消后立即收回项目管理权限，历史项目由教师继续管理。
+            学生干部可创建全年级项目，管理自己创建或被指定共同管理的项目及其答案、附件和导出；不能管理人员。取消后立即收回项目管理权限，历史项目由教师继续管理。
           </p>
           <p className="notice">
             {officer

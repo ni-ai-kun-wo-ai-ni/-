@@ -199,7 +199,11 @@ export default function Workspace() {
             <p>{t.description}</p>
             <small>
               截止 {dateText(t.deadline)}
-              {!teacher && ` · ${t.submissions?.length ? '已提交' : '未填写'}`}
+              {!management && ` · ${t.submissions?.length ? '已提交' : '未填写'}`}
+              {!teacher &&
+                management &&
+                canManageTask(data.user, t) &&
+                (t.creatorId === data.user.id ? ' · 我创建的' : ' · 共同管理')}
             </small>
           </div>
           <div className="task-actions">
@@ -327,7 +331,9 @@ export default function Workspace() {
             <button key={v} className={view === v ? 'active' : ''} onClick={() => navigate(v)}>
               <span>{['◫', '▤', '♧', '▦', '⚙'][i]}</span>
               {labels[v]}
-              {v === 'tasks' && <small>{data.tasks.length}</small>}
+              {v === 'tasks' && (
+                <small>{teacher ? data.tasks.length : data.managedTasks?.length || 0}</small>
+              )}
             </button>
           ))}
         </nav>
@@ -490,7 +496,9 @@ export default function Workspace() {
                 />
               </div>
               {!teacher && view === 'tasks' && (
-                <p className="notice">仅管理自己创建的项目，可向全年级发布；无人员管理权限。</p>
+                <p className="notice">
+                  管理自己创建或被指定共同管理的项目，可向全年级发布；无人员管理权限。
+                </p>
               )}
               {taskCards(tasks, teacher || view === 'tasks' || view === 'officer')}
             </div>
