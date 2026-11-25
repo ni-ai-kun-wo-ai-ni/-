@@ -8,6 +8,7 @@ import {
   type Submission,
   type Task,
 } from '@/lib/types';
+import { canManageTask, canPublishTasks } from '@/lib/permissions';
 import TaskBuilder from './task-builder';
 import StudentForm from './student-form';
 import ReportView from './report-view';
@@ -136,7 +137,7 @@ export default function Workspace() {
             </button>
           </form>
           <div className="demo-box">
-            请向管理员获取账号与密码。教师、班干部和学生使用同一入口登录。
+            请向管理员获取账号与密码。教师、学生干部、班干部和学生使用同一入口登录。
           </div>
         </section>
       </main>
@@ -162,9 +163,10 @@ export default function Workspace() {
     );
   const teacher = data.user.role === 'TEACHER';
   const officer = data.user.isClassOfficer;
+  const publisher = canPublishTasks(data.user);
   const nav = teacher
     ? ['home', 'tasks', 'students', 'classes', ...(data.user.isSuperAdmin ? ['teachers'] : [])]
-    : ['home', 'records', ...(officer ? ['officer'] : [])];
+    : ['home', ...(publisher ? ['tasks'] : []), 'records', ...(officer ? ['officer'] : [])];
   const scopedTasks = data.tasks.filter((t) => !gradeFilter || t.gradeId === gradeFilter);
   const scopedStudents = data.students.filter(
     (s) => !gradeFilter || (s.class?.gradeId || s.gradeId) === gradeFilter,
@@ -172,9 +174,13 @@ export default function Workspace() {
   const scopedClasses = data.grades
     .filter((g) => !gradeFilter || g.id === gradeFilter)
     .flatMap((g) => g.classes);
-  const tasks = (view === 'officer' ? data.officerTasks : scopedTasks).filter(
-    (t) => t.title.includes(search) && (view !== 'records' || t.submissions?.length),
-  );
+  const tasks = (
+    view === 'officer'
+      ? data.officerTasks
+      : view === 'tasks' && !teacher
+        ? data.managedTasks || []
+        : scopedTasks
+  ).filter((t) => t.title.includes(search) && (view !== 'records' || t.submissions?.length));
   const taskCards = (items: Task[], management = teacher || view === 'officer') => (
     <div className="task-list">
       {items.length === 0 && <div className="empty">暂无符合条件的任务。</div>}
@@ -206,7 +212,7 @@ export default function Workspace() {
                 >
                   查看统计 ↗
                 </button>
-                {teacher && t.status === 'DRAFT' && (
+                {canManageTask(data.user, t) && t.status === 'DRAFT' && (
                   <button
                     disabled={busy}
                     onClick={() =>
@@ -220,7 +226,7 @@ export default function Workspace() {
                     发布
                   </button>
                 )}
-                {teacher && t.status === 'OPEN' && (
+                {canManageTask(data.user, t) && t.status === 'OPEN' && (
                   <button
                     className="text-button danger"
                     disabled={busy}
@@ -235,7 +241,7 @@ export default function Workspace() {
                     结束任务
                   </button>
                 )}
-                {teacher && t.status !== 'CLOSED' && (
+                {canManageTask(data.user, t) && t.status !== 'CLOSED' && (
                   <DeadlineEditor
                     key={`${t.id}-${t.deadline}`}
                     task={t}
@@ -245,6 +251,9 @@ export default function Workspace() {
                         current
                           ? {
                               ...current,
+                              managedTasks: current.managedTasks?.map((task) =>
+                                task.id === t.id ? { ...task, ...result } : task,
+                              ),
                               tasks: current.tasks.map((task) =>
                                 task.id === t.id ? { ...task, ...result } : task,
                               ),
@@ -255,7 +264,7 @@ export default function Workspace() {
                     }}
                   />
                 )}
-                {teacher && (
+                {canManageTask(data.user, t) && (
                   <button
                     className="text-button danger"
                     disabled={busy}
@@ -285,7 +294,7 @@ export default function Workspace() {
   );
   return (
     <div className="app-shell">
-      {taskToDelete && teacher && (
+      {taskToDelete && canManageTask(data.user, taskToDelete) && (
         <DeleteTaskDialog
           key={taskToDelete.id}
           task={taskToDelete}
@@ -293,7 +302,13 @@ export default function Workspace() {
           onDeleted={() => {
             setData((current) =>
               current
-                ? { ...current, tasks: current.tasks.filter((task) => task.id !== taskToDelete.id) }
+                ? {
+                    ...current,
+                    managedTasks: current.managedTasks?.filter(
+                      (task) => task.id !== taskToDelete.id,
+                    ),
+                    tasks: current.tasks.filter((task) => task.id !== taskToDelete.id),
+                  }
                 : current,
             );
             setTaskToDelete(null);
@@ -331,9 +346,11 @@ export default function Workspace() {
                   ? data.user.isSuperAdmin
                     ? '超级管理员'
                     : '教师'
-                  : officer
-                    ? '班干部'
-                    : '学生'}
+                  : data.user.isStudentOfficer
+                    ? '学生干部'
+                    : officer
+                      ? '班干部'
+                      : '学生'}
               </small>
             </span>
             <button
@@ -364,7 +381,7 @@ export default function Workspace() {
                     : '年级信息收集与统计系统'}
               </p>
             </div>
-            {teacher && view !== 'create' && (
+            {publisher && view !== 'create' && (
               <button onClick={() => navigate('create')}>＋ 创建任务</button>
             )}
             {!teacher && <span className="badge draft">{data.user.class?.name}</span>}
@@ -472,7 +489,10 @@ export default function Workspace() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              {taskCards(tasks, teacher || view === 'officer')}
+              {!teacher && view === 'tasks' && (
+                <p className="notice">仅管理自己创建的项目，可向全年级发布；无人员管理权限。</p>
+              )}
+              {taskCards(tasks, teacher || view === 'tasks' || view === 'officer')}
             </div>
           )}
           {view === 'students' && teacher && (
@@ -509,7 +529,7 @@ export default function Workspace() {
               }}
             />
           )}
-          {view === 'create' && teacher && (
+          {view === 'create' && publisher && (
             <TaskBuilder
               data={data}
               initialGradeId={gradeFilter}
@@ -549,7 +569,7 @@ export default function Workspace() {
           )}
           {view === 'report' && report && (
             <>
-              <button className="back" onClick={() => navigate(teacher ? 'tasks' : 'officer')}>
+              <button className="back" onClick={() => navigate(publisher ? 'tasks' : 'officer')}>
                 ← 返回任务列表
               </button>
               <ReportView report={report} filterClass={filterClass} selectClass={setFilterClass} />

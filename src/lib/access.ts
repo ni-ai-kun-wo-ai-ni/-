@@ -2,6 +2,7 @@ import type { User } from '@prisma/client';
 import { db } from './db';
 import { HttpError } from './auth';
 import { attachmentSelect } from './attachment-types';
+import { canManageTask } from './permissions';
 export const publicUser = {
   id: true,
   username: true,
@@ -13,6 +14,7 @@ export const publicUser = {
   role: true,
   isSuperAdmin: true,
   isClassOfficer: true,
+  isStudentOfficer: true,
   mustChangePassword: true,
   class: { select: { id: true, name: true, gradeId: true } },
 } as const;
@@ -26,7 +28,7 @@ export async function accessibleTask(user: User, id: string) {
     include: { fields: { orderBy: { position: 'asc' } } },
   });
   if (!task) throw new HttpError(404, '任务不存在');
-  if (user.role !== 'TEACHER') {
+  if (!canManageTask(user, task)) {
     const target = await db.taskTarget.findUnique({
       where: { taskId_userId: { taskId: id, userId: user.id } },
     });
@@ -36,24 +38,24 @@ export async function accessibleTask(user: User, id: string) {
 }
 // 统计和导出共用同一查询；班干部的 classId 永远取自 Session 用户，不能由前端扩大范围。
 export async function taskReport(user: User, taskId: string, requestedClass?: string | null) {
-  if (user.role !== 'TEACHER' && (!user.isClassOfficer || !user.classId))
-    throw new HttpError(403, '无权查看统计');
-  if (user.role !== 'TEACHER' && requestedClass && requestedClass !== user.classId)
-    throw new HttpError(403, '不能查看其他班级');
   const task = await db.collectionTask.findUnique({
     where: { id: taskId },
     include: { fields: { orderBy: { position: 'asc' } }, targets: true },
   });
   if (!task) throw new HttpError(404, '任务不存在');
-  if (user.role !== 'TEACHER' && task.status === 'DRAFT') throw new HttpError(403, '任务尚未发布');
-  const classId = user.role === 'TEACHER' ? requestedClass || undefined : user.classId!;
+  const manager = canManageTask(user, task);
+  if (!manager && (!user.isClassOfficer || !user.classId)) throw new HttpError(403, '无权查看统计');
+  if (!manager && requestedClass && requestedClass !== user.classId)
+    throw new HttpError(403, '不能查看其他班级');
+  if (!manager && task.status === 'DRAFT') throw new HttpError(403, '任务尚未发布');
+  const classId = manager ? requestedClass || undefined : user.classId!;
   const students = await db.user.findMany({
     where: { role: 'STUDENT', id: { in: task.targets.map((t) => t.userId) }, classId },
     select: publicUser,
     orderBy: { studentNumber: 'asc' },
   });
-  if (user.role !== 'TEACHER' && !students.length) throw new HttpError(403, '此任务未指定本班学生');
-  const canView = user.role === 'TEACHER' || task.officerCanView;
+  if (!manager && !students.length) throw new HttpError(403, '此任务未指定本班学生');
+  const canView = manager || task.officerCanView;
   const submissions = await db.submission.findMany({
     where: { taskId, userId: { in: students.map((s) => s.id) } },
     include: { answers: canView },

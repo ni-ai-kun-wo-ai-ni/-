@@ -6,6 +6,7 @@ export type Person = {
   role: string;
   isSuperAdmin: boolean;
   isClassOfficer: boolean;
+  isStudentOfficer: boolean;
   mustChangePassword: boolean;
   classId: string | null;
   gradeId: string | null;
@@ -14,6 +15,7 @@ export type Person = {
 };
 export type Field = { id: string; label: string; type: string; required: boolean; options: string };
 export type Task = {
+  creatorId: string;
   id: string;
   title: string;
   description: string;
@@ -36,6 +38,8 @@ export type Bootstrap = {
   user: Person;
   tasks: Task[];
   officerTasks: Task[];
+  managedTasks?: Task[];
+  publisherStudents?: Pick<Person, 'id' | 'name' | 'studentNumber' | 'gradeId' | 'class'>[];
   students: Person[];
   grades: {
     id: string;

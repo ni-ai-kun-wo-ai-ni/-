@@ -134,7 +134,7 @@ export default function TaskBuilder({
         </label>
         {specific && (
           <div className="target-list">
-            {data.students
+            {(data.user.role === 'TEACHER' ? data.students : data.publisherStudents || [])
               .filter((s) => (s.class?.gradeId || s.gradeId) === gradeId)
               .map((s) => (
                 <label key={s.id} className="check">

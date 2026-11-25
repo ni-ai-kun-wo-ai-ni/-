@@ -1,0 +1,1 @@
+ALTER TABLE "User" ADD COLUMN "isStudentOfficer" BOOLEAN NOT NULL DEFAULT false;

@@ -26,6 +26,7 @@ import { completeInitialPassword } from '@/lib/initial-password';
 import { createGrade, createClass, deleteOrganization } from '@/lib/organization';
 import { importStudents, studentImportTemplate } from '@/lib/student-import';
 import { createTeacher, deleteTeacher, listTeachers, updateTeacher } from '@/lib/teachers';
+import { canPublishTasks, canManageTask } from '@/lib/permissions';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ path: string[] }> };
@@ -140,12 +141,11 @@ async function handle(req: NextRequest, ctx: Context) {
             orderBy: { createdAt: 'desc' },
           })
         : [];
-      const grades =
-        user.role === 'TEACHER'
-          ? await db.grade.findMany({
-              include: { classes: { include: { _count: { select: { students: true } } } } },
-            })
-          : [];
+      const grades = canPublishTasks(user)
+        ? await db.grade.findMany({
+            include: { classes: { include: { _count: { select: { students: true } } } } },
+          })
+        : [];
       const students =
         user.role === 'TEACHER'
           ? await db.user.findMany({
@@ -156,6 +156,29 @@ async function handle(req: NextRequest, ctx: Context) {
           : [];
       return json({
         user: me,
+        managedTasks:
+          user.role === 'STUDENT' && user.isStudentOfficer
+            ? (
+                await db.collectionTask.findMany({
+                  where: { creatorId: user.id },
+                  orderBy: { createdAt: 'desc' },
+                })
+              ).map((t) => ({ ...t, displayStatus: taskStatus(t) }))
+            : [],
+        publisherStudents:
+          user.role === 'STUDENT' && user.isStudentOfficer
+            ? await db.user.findMany({
+                where: { role: 'STUDENT' },
+                select: {
+                  id: true,
+                  name: true,
+                  studentNumber: true,
+                  gradeId: true,
+                  class: { select: { id: true, name: true, gradeId: true } },
+                },
+                orderBy: { studentNumber: 'asc' },
+              })
+            : [],
         tasks: tasks.map((t) => ({ ...t, displayStatus: taskStatus(t) })),
         officerTasks: officerTasks.map((t) => ({ ...t, displayStatus: taskStatus(t) })),
         grades,
@@ -218,7 +241,7 @@ async function handle(req: NextRequest, ctx: Context) {
       return json(await setStudentIdentity(user, path[1], await req.json()));
     }
     if (key === 'tasks' && write) {
-      teacherOnly(user);
+      if (!canPublishTasks(user)) throw new HttpError(403, '仅教师或学生干部可以创建任务');
       const input = taskSchema.parse(await req.json());
       if (new Date(input.deadline) <= new Date()) throw new HttpError(400, '截止时间必须晚于现在');
       if (!(await db.grade.findUnique({ where: { id: input.gradeId } })))
@@ -267,7 +290,6 @@ async function handle(req: NextRequest, ctx: Context) {
       const taskId = path[1];
       const action = path[2];
       if (action === 'delete' && path.length === 3 && write) {
-        teacherOnly(user);
         const { confirmTitle } = z
           .object({ confirmTitle: z.string().min(1).max(100) })
           .strict()
@@ -277,6 +299,7 @@ async function handle(req: NextRequest, ctx: Context) {
         await db.$transaction(async (tx) => {
           const task = await tx.collectionTask.findUnique({ where: { id: taskId } });
           if (!task) throw new HttpError(404, '任务不存在或已被删除');
+          if (!canManageTask(user, task)) throw new HttpError(403, '无权管理此任务');
           if (task.title !== confirmTitle) throw new HttpError(400, '任务名称不匹配，请重新核对');
           await tx.submission.deleteMany({ where: { taskId } });
           await tx.collectionTask.delete({ where: { id: taskId } });
@@ -284,7 +307,6 @@ async function handle(req: NextRequest, ctx: Context) {
         return json({ ok: true });
       }
       if (action === 'status' && write) {
-        teacherOnly(user);
         const input = z
           .object({
             status: z.enum(['OPEN', 'CLOSED']),
@@ -295,6 +317,7 @@ async function handle(req: NextRequest, ctx: Context) {
         await db.$transaction(async (tx) => {
           const old = await tx.collectionTask.findUnique({ where: { id: taskId } });
           if (!old) throw new HttpError(404, '任务不存在');
+          if (!canManageTask(user, old)) throw new HttpError(403, '无权管理此任务');
           if (input.status === 'OPEN' && old.status !== 'DRAFT')
             throw new HttpError(400, '只有草稿可以发布');
           const deadline = input.deadline ? new Date(input.deadline) : old.deadline;
@@ -308,12 +331,12 @@ async function handle(req: NextRequest, ctx: Context) {
         return json({ ok: true });
       }
       if (action === 'deadline' && write) {
-        teacherOnly(user);
         const { deadline } = z
           .object({ deadline: z.string().datetime({ offset: true }) })
           .parse(await req.json());
         if (new Date(deadline) <= new Date()) throw new HttpError(400, '截止时间必须晚于现在');
         const old = await accessibleTask(user, taskId);
+        if (!canManageTask(user, old)) throw new HttpError(403, '无权管理此任务');
         if (old.status === 'CLOSED') throw new HttpError(400, '手动结束的任务不能更改截止时间');
         const updated = await db.collectionTask.update({
           where: { id: taskId },

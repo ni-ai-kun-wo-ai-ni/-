@@ -35,6 +35,7 @@ model User {
   role               String           @default("STUDENT")
   isSuperAdmin       Boolean          @default(false)
   isClassOfficer     Boolean          @default(false)
+  isStudentOfficer   Boolean          @default(false)
   classId            String?
   class              Class?           @relation(fields: [classId], references: [id])
   gradeId            String?

@@ -129,7 +129,13 @@ export default function StudentManagement({
                   </td>
                   <td>
                     <span className={`badge ${s.isClassOfficer ? 'open' : 'draft'}`}>
-                      {s.isClassOfficer ? '班干部' : '学生'}
+                      {s.isStudentOfficer
+                        ? s.isClassOfficer
+                          ? '学生干部 / 班干部'
+                          : '学生干部'
+                        : s.isClassOfficer
+                          ? '班干部'
+                          : '学生'}
                     </span>
                   </td>
                   <td>
@@ -220,7 +226,9 @@ export default function StudentManagement({
           onCancel={() => setSettingIdentity(null)}
           onSaved={async (updated) => {
             setSettingIdentity(null);
-            setNotice(`${updated.name} 已设为${updated.isClassOfficer ? '班干部' : '普通学生'}。`);
+            setNotice(
+              `${updated.name} 已设为${updated.isStudentOfficer ? '学生干部' : updated.isClassOfficer ? '班干部' : '普通学生'}。`,
+            );
             try {
               await refresh();
             } catch {
@@ -239,7 +247,7 @@ export default function StudentManagement({
             setTransferring(null);
             setSearch('');
             setNotice(
-              `${updated.name} 已转入${updated.class?.name}，身份为${updated.isClassOfficer ? '班干部' : '普通学生'}。`,
+              `${updated.name} 已转入${updated.class?.name}，身份为${updated.isStudentOfficer ? '学生干部' : updated.isClassOfficer ? '班干部' : '普通学生'}。`,
             );
             try {
               await refresh();

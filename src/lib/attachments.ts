@@ -189,12 +189,17 @@ export async function downloadAttachment(actor: User, id: string, preview: boole
       userId: true,
       user: { select: { classId: true } },
       task: {
-        select: { status: true, officerCanView: true, targets: { select: { userId: true } } },
+        select: {
+          creatorId: true,
+          status: true,
+          officerCanView: true,
+          targets: { select: { userId: true } },
+        },
       },
     },
   });
   if (!file) throw new HttpError(404, '附件不存在或已被删除');
-  if (actor.role !== 'TEACHER') {
+  if (actor.role !== 'TEACHER' && !(actor.isStudentOfficer && file.task.creatorId === actor.id)) {
     if (file.userId === actor.id) await accessibleTask(actor, file.taskId);
     else if (
       !actor.isClassOfficer ||

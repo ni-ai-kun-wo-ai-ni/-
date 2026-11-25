@@ -12,6 +12,9 @@ export default function StudentIdentityDialog({
   onSaved: (student: Person) => Promise<void>;
 }) {
   const [officer, setOfficer] = useState(student.isClassOfficer);
+  const [studentOfficer, setStudentOfficer] = useState(student.isStudentOfficer);
+  const unchanged =
+    officer === student.isClassOfficer && studentOfficer === student.isStudentOfficer;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
@@ -30,12 +33,13 @@ export default function StudentIdentityDialog({
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            if (busy || officer === student.isClassOfficer) return;
+            if (busy || unchanged) return;
             setBusy(true);
             setError('');
             try {
               const updated = await api<Person>(`students/${student.id}/identity`, {
                 isClassOfficer: officer,
+                isStudentOfficer: studentOfficer,
                 fromClassId: student.classId,
               });
               await onSaved(updated);
@@ -61,6 +65,18 @@ export default function StudentIdentityDialog({
               </option>
             </select>
           </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={studentOfficer}
+              disabled={busy}
+              onChange={(e) => setStudentOfficer(e.target.checked)}
+            />
+            学生干部（部门负责人，可兼任班干部）
+          </label>
+          <p className="notice">
+            学生干部可创建全年级项目，仅管理自己创建的项目及其答案、附件和导出；不能管理人员。取消后立即收回项目管理权限，历史项目由教师继续管理。
+          </p>
           <p className="notice">
             {officer
               ? '设为班干部后，可以管理本班任务统计、查看允许公开的本班答案，并导出本班数据。'
@@ -75,9 +91,7 @@ export default function StudentIdentityDialog({
             <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
               取消
             </button>
-            <button disabled={busy || officer === student.isClassOfficer}>
-              {busy ? '保存中…' : '保存身份'}
-            </button>
+            <button disabled={busy || unchanged}>{busy ? '保存中…' : '保存身份'}</button>
           </div>
         </form>
       </section>

@@ -61,6 +61,8 @@ export async function deleteStudent(actor: User, id: string, raw: unknown) {
     await tx.session.deleteMany({ where: { userId: id } });
     await tx.submission.deleteMany({ where: { userId: id } }); // 答案由外键级联删除。
     await tx.taskTarget.deleteMany({ where: { userId: id } });
+    // 保留学生干部创建的任务和其他同学的答案，交由执行删除的教师管理。
+    await tx.collectionTask.updateMany({ where: { creatorId: id }, data: { creatorId: actor.id } });
     await tx.user.delete({ where: { id } });
   });
 }
@@ -97,7 +99,11 @@ export async function transferStudent(actor: User, id: string, raw: unknown) {
 export async function setStudentIdentity(actor: User, id: string, raw: unknown) {
   teacherOnly(actor);
   const input = z
-    .object({ isClassOfficer: z.boolean(), fromClassId: z.string().nullable() })
+    .object({
+      isClassOfficer: z.boolean(),
+      isStudentOfficer: z.boolean().optional(),
+      fromClassId: z.string().nullable(),
+    })
     .strict()
     .parse(raw);
   return db.$transaction(async (tx) => {
@@ -112,7 +118,12 @@ export async function setStudentIdentity(actor: User, id: string, raw: unknown) 
     // 班干部始终属于 STUDENT，仅修改干部标记。Session 下次请求会重新读取身份。
     return tx.user.update({
       where: { id },
-      data: { isClassOfficer: input.isClassOfficer },
+      data: {
+        isClassOfficer: input.isClassOfficer,
+        ...(input.isStudentOfficer !== undefined
+          ? { isStudentOfficer: input.isStudentOfficer }
+          : {}),
+      },
       select: publicUser,
     });
   });
