@@ -3,6 +3,7 @@ import { db } from './db';
 import { HttpError } from './auth';
 import { attachmentSelect } from './attachment-types';
 import { canManageTask } from './permissions';
+import { UNASSIGNED_CLASS } from './report-filters';
 export const publicUser = {
   id: true,
   username: true,
@@ -17,6 +18,15 @@ export const publicUser = {
   isStudentOfficer: true,
   mustChangePassword: true,
   class: { select: { id: true, name: true, gradeId: true } },
+} as const;
+export const reportStudent = {
+  id: true,
+  name: true,
+  studentNumber: true,
+  classId: true,
+  gradeId: true,
+  grade: publicUser.grade,
+  class: publicUser.class,
 } as const;
 export const isOpen = (task: { status: string; deadline: Date }) =>
   task.status === 'OPEN' && task.deadline > new Date();
@@ -48,10 +58,14 @@ export async function taskReport(user: User, taskId: string, requestedClass?: st
   if (!manager && requestedClass && requestedClass !== user.classId)
     throw new HttpError(403, '不能查看其他班级');
   if (!manager && task.status === 'DRAFT') throw new HttpError(403, '任务尚未发布');
-  const classId = manager ? requestedClass || undefined : user.classId!;
+  const classId = manager
+    ? requestedClass === UNASSIGNED_CLASS
+      ? null
+      : requestedClass || undefined
+    : user.classId!;
   const students = await db.user.findMany({
     where: { role: 'STUDENT', id: { in: task.targets.map((t) => t.userId) }, classId },
-    select: publicUser,
+    select: reportStudent,
     orderBy: { studentNumber: 'asc' },
   });
   if (!manager && !students.length) throw new HttpError(403, '此任务未指定本班学生');
@@ -66,8 +80,18 @@ export async function taskReport(user: User, taskId: string, requestedClass?: st
         select: { ...attachmentSelect, userId: true },
       })
     : [];
+  const submissionByUser = new Map(
+    submissions.map((submission) => [submission.userId, submission]),
+  );
+  const filesByUser = new Map<string, Omit<(typeof files)[number], 'userId'>[]>();
+  for (const file of files) {
+    const { userId, ...info } = file;
+    const group = filesByUser.get(userId) || [];
+    group.push(info);
+    filesByUser.set(userId, group);
+  }
   const rows = students.map((student) => {
-    const submission = submissions.find((sub) => sub.userId === student.id);
+    const submission = submissionByUser.get(student.id);
     return {
       ...student,
       submission: submission
@@ -75,12 +99,7 @@ export async function taskReport(user: User, taskId: string, requestedClass?: st
             ...submission,
             ...(canView
               ? {
-                  attachments: files
-                    .filter((file) => file.userId === student.id)
-                    .map(({ userId: _userId, ...info }) => {
-                      void _userId;
-                      return info;
-                    }),
+                  attachments: filesByUser.get(student.id) || [],
                 }
               : {}),
           }

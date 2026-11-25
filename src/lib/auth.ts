@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { db, writeTransaction } from './db';
 import { isAllowedOrigin } from './request-origin';
 import { HttpError } from './http-error';
+import type { Prisma, User } from '@prisma/client';
 export { HttpError } from './http-error';
 export const tokenHash = (value: string) => createHash('sha256').update(value).digest('hex');
 export async function currentUser() {
@@ -14,7 +15,22 @@ export async function currentUser() {
   });
   if (!session || session.expiresAt < new Date())
     throw new HttpError(401, '登录已过期，请重新登录');
-  return session.user;
+  return { ...session.user, sessionId: session.id };
+}
+// 排队、解析上传或密码计算结束后，写事务内重新校验会话与当前身份。
+export async function activeActor(
+  tx: Prisma.TransactionClient,
+  actor: User & { sessionId?: string },
+) {
+  const current = await tx.user.findUnique({ where: { id: actor.id } });
+  if (!current) throw new HttpError(401, '账号已失效，请重新登录');
+  if (actor.sessionId) {
+    const session = await tx.session.findUnique({ where: { id: actor.sessionId } });
+    if (!session || session.userId !== actor.id || session.expiresAt <= new Date())
+      throw new HttpError(401, '登录状态已变化，请重新登录');
+  }
+  if (current.mustChangePassword) throw new HttpError(403, '请先设置自己的密码');
+  return current;
 }
 export async function createSession(
   userId: string,
@@ -35,6 +51,7 @@ export async function createSession(
       }))
     )
       throw new HttpError(401, '账号或密码已变化，请使用新信息登录');
+    await tx.session.deleteMany({ where: { expiresAt: { lte: new Date() } } });
     await tx.session.create({
       data: { id: tokenHash(token), userId, expiresAt: new Date(Date.now() + 7 * 86400000) },
     });

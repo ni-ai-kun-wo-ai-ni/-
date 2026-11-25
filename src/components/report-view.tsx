@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { dateText, type Report } from '@/lib/types';
 import AttachmentLinks from './attachment-links';
+import { reportClassKey, UNASSIGNED_CLASS } from '@/lib/report-filters';
 export default function ReportView({
   report,
   filterClass,
@@ -13,16 +14,21 @@ export default function ReportView({
 }) {
   const [tab, setTab] = useState('all');
   const [message, setMessage] = useState('');
-  const scopedRows = report.rows.filter((r) => !filterClass || r.classId === filterClass);
+  const scopedRows = report.rows.filter((r) => !filterClass || reportClassKey(r) === filterClass);
   const missing = scopedRows.filter((r) => !r.submission);
   const submitted = scopedRows.filter((r) => r.submission).length;
   const pct = scopedRows.length ? Math.round((submitted / scopedRows.length) * 100) : 0;
-  const classes = [...new Map(report.rows.map((r) => [r.classId, r.class])).values()].filter(
-    (c) => c !== null,
-  );
+  const classes = [
+    ...new Map(
+      report.rows.map((r) => [
+        reportClassKey(r),
+        r.class || { id: UNASSIGNED_CLASS, name: '暂未分班' },
+      ]),
+    ).values(),
+  ];
   const rows = report.rows.filter(
     (r) =>
-      (!filterClass || r.classId === filterClass) &&
+      (!filterClass || reportClassKey(r) === filterClass) &&
       (tab === 'all' || (tab === 'yes' ? !!r.submission : !r.submission)),
   );
   return (
@@ -75,7 +81,7 @@ export default function ReportView({
         <div className="panel">
           <h2>班级完成情况</h2>
           {classes.map((c) => {
-            const students = report.rows.filter((r) => r.classId === c.id);
+            const students = report.rows.filter((r) => reportClassKey(r) === c.id);
             const n = students.filter((r) => r.submission).length;
             return (
               <button
@@ -100,11 +106,12 @@ export default function ReportView({
             <h2>未提交提醒</h2>
             <button
               className="text-button"
+              disabled={!missing.length}
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(
                     missing
-                      .filter((r) => !filterClass || r.classId === filterClass)
+                      .filter((r) => !filterClass || reportClassKey(r) === filterClass)
                       .map((r) => `${r.name}（${r.studentNumber}）`)
                       .join('\n'),
                   );
@@ -119,7 +126,7 @@ export default function ReportView({
           </div>
           <div className="name-tags">
             {missing
-              .filter((r) => !filterClass || r.classId === filterClass)
+              .filter((r) => !filterClass || reportClassKey(r) === filterClass)
               .map((r) => (
                 <span key={r.id}>{r.name}</span>
               ))}
@@ -167,7 +174,7 @@ export default function ReportView({
                     <b>{r.name}</b>
                   </td>
                   <td>{r.studentNumber}</td>
-                  <td>{r.class?.name}</td>
+                  <td>{r.class?.name || '暂未分班'}</td>
                   <td>
                     <span className={`badge ${r.submission ? 'open' : 'pending'}`}>
                       {r.submission ? '已提交' : '未提交'}

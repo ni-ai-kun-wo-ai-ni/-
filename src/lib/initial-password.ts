@@ -20,18 +20,31 @@ const schema = z
   .strict()
   .refine((input) => input.password === input.confirmPassword, '两次密码输入不一致');
 
-export async function completeInitialPassword(userId: string, raw: unknown) {
+export async function completeInitialPassword(
+  userId: string,
+  raw: unknown,
+  expectedHash?: string,
+  sessionId?: string,
+) {
   const input = schema.parse(raw);
   const passwordHash = await hash(input.password, 12);
-  await writeTransaction(async (tx) => {
+  return writeTransaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id: userId } });
     if (!user || !['STUDENT', 'TEACHER'].includes(user.role) || !user.mustChangePassword)
       throw new HttpError(409, '该账号已设置过密码，请使用新密码重新登录');
-    await tx.user.update({
+    if (expectedHash && user.passwordHash !== expectedHash)
+      throw new HttpError(401, '登录凭据已变化，请重新登录');
+    if (sessionId) {
+      const session = await tx.session.findUnique({ where: { id: sessionId } });
+      if (!session || session.userId !== userId || session.expiresAt <= new Date())
+        throw new HttpError(401, '登录已失效，请重新登录');
+    }
+    const updated = await tx.user.update({
       where: { id: userId },
       data: { passwordHash, mustChangePassword: false },
     });
     // 所有使用初始密码建立的会话失效，包括同时在其他设备登录的会话。
     await tx.session.deleteMany({ where: { userId } });
+    return updated;
   });
 }

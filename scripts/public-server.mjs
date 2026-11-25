@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { rmSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 import { compare } from 'bcryptjs';
+import { backupDatabase } from './database-backup.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 process.chdir(root);
 process.loadEnvFile(resolve('.env'));
@@ -20,6 +21,8 @@ const stateFile = resolve(local, 'public-server.json');
 const stopRequestFile = resolve(local, 'stop-request.json');
 const runId = randomBytes(16).toString('hex');
 let stopWatcher;
+let backupTimer;
+let backupRunning = false;
 let stateWritten = false;
 let app;
 let tunnel;
@@ -28,6 +31,7 @@ function stop(code = 0) {
   if (stopping) return;
   stopping = true;
   clearInterval(stopWatcher);
+  clearInterval(backupTimer);
   app?.kill();
   tunnel?.kill();
   if (stateWritten) {
@@ -57,6 +61,21 @@ async function main() {
   } finally {
     await db.$disconnect();
   }
+  async function snapshot() {
+    if (backupRunning || stopping) return;
+    backupRunning = true;
+    try {
+      const path = await backupDatabase(root, process.env.DATABASE_URL);
+      console.log(`已保存本机一致性备份：${path}`);
+    } catch (error) {
+      console.error(`自动备份失败，请及时手动备份：${error.message}`);
+    } finally {
+      backupRunning = false;
+    }
+  }
+  await snapshot();
+  backupTimer = setInterval(() => void snapshot(), 24 * 60 * 60 * 1000);
+  backupTimer.unref();
   let binary;
   try {
     binary = await readFile(executable);

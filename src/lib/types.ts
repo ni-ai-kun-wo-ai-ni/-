@@ -51,21 +51,52 @@ export type Bootstrap = {
 };
 export type Report = {
   task: Task;
-  rows: (Person & { submission: Submission | null })[];
+  rows: (Pick<
+    Person,
+    'id' | 'name' | 'studentNumber' | 'classId' | 'gradeId' | 'grade' | 'class'
+  > & { submission: Submission | null })[];
   total: number;
   submitted: number;
   canView: boolean;
 };
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
 export async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`/api/${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    cache: 'no-store',
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || '请求失败');
-  return data;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(`/api/${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    let data: T & { error?: string };
+    try {
+      data = await response.json();
+    } catch {
+      throw new ApiError('未收到有效的服务器响应，请稍后重试', response.status);
+    }
+    if (!response.ok)
+      throw new ApiError(
+        typeof data?.error === 'string' ? data.error : '请求失败，请重试',
+        response.status,
+      );
+    return data;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError')
+      throw new ApiError('等待服务器超时，请检查网络后重试', 408);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 export const dateText = (date: string) =>
   new Date(date).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });

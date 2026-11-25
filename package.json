@@ -19,7 +19,7 @@
     "@prisma/client": "6.19.0",
     "bcryptjs": "^3.0.2",
     "exceljs": "^4.4.0",
-    "next": "^16.0.0",
+    "next": "16.4.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "zod": "^4.1.0"
@@ -30,7 +30,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.0.0",
-    "eslint-config-next": "^16.0.0",
+    "eslint-config-next": "16.4.5",
     "prettier": "^3.9.10",
     "prisma": "6.19.0",
     "tailwindcss": "^4.1.0",

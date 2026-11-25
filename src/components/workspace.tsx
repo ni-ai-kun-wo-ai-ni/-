@@ -1,7 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
+import ChangePasswordDialog from './change-password-dialog';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   api,
+  ApiError,
   dateText,
   type Bootstrap,
   type Report,
@@ -31,6 +33,7 @@ const labels: Record<string, string> = {
   report: '任务统计',
 };
 export default function Workspace() {
+  const [changingPassword, setChangingPassword] = useState(false);
   const [data, setData] = useState<Bootstrap | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('home');
@@ -43,25 +46,72 @@ export default function Workspace() {
   const [search, setSearch] = useState('');
   const [gradeFilter, setGradeFilter] = useState('');
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+  const authEpoch = useRef(0);
+  const activeOperations = useRef(0);
+  const accountId = useRef<string | null>(null);
+  const clearPrivateViews = useCallback(() => {
+    setDetail(null);
+    setReport(null);
+    setTaskToDelete(null);
+    setChangingPassword(false);
+    setFilterClass('');
+  }, []);
+  function endSession() {
+    authEpoch.current++;
+    accountId.current = null;
+    clearPrivateViews();
+    setGradeFilter('');
+    setSearch('');
+    setNotice('');
+    setData(null);
+  }
+  const applyData = useCallback(
+    (next: Bootstrap) => {
+      if (accountId.current !== next.user.id) {
+        authEpoch.current++;
+        clearPrivateViews();
+      }
+      accountId.current = next.user.id;
+      setData(next);
+    },
+    [clearPrivateViews],
+  );
   async function refresh() {
+    const epoch = authEpoch.current;
     const d = await api<Bootstrap>('bootstrap');
-    setData(d);
+    if (epoch === authEpoch.current) applyData(d);
   }
   useEffect(() => {
+    const epoch = authEpoch.current;
     api<Bootstrap>('bootstrap')
-      .then(setData)
-      .catch(() => setData(null))
+      .then((next) => {
+        if (epoch === authEpoch.current) applyData(next);
+      })
+      .catch((error: Error) => {
+        if (epoch === authEpoch.current) {
+          setData(null);
+          setError(error instanceof ApiError && error.status === 401 ? '' : error.message);
+        }
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }, [applyData]);
   async function perform(fn: () => Promise<void>) {
+    const epoch = authEpoch.current;
+    activeOperations.current++;
     setBusy(true);
     setError('');
     try {
       await fn();
     } catch (e) {
+      if (epoch !== authEpoch.current) return;
+      if (e instanceof ApiError && e.status === 401) {
+        endSession();
+        setView('home');
+      }
       setError((e as Error).message);
     } finally {
-      setBusy(false);
+      activeOperations.current--;
+      setBusy(activeOperations.current > 0);
     }
   }
   function navigate(next: string) {
@@ -71,11 +121,18 @@ export default function Workspace() {
     setSearch('');
   }
   async function openTask(task: Task, mode: 'fill' | 'report') {
+    const epoch = authEpoch.current;
     await perform(async () => {
       if (mode === 'report') {
-        setReport(await api<Report>(`tasks/${task.id}/report`));
+        const result = await api<Report>(`tasks/${task.id}/report`);
+        if (epoch !== authEpoch.current) return;
+        setReport(result);
         setFilterClass('');
-      } else setDetail(await api(`tasks/${task.id}`));
+      } else {
+        const result = await api<{ task: Task; submission: Submission | null }>(`tasks/${task.id}`);
+        if (epoch !== authEpoch.current) return;
+        setDetail(result);
+      }
       navigate(mode);
     });
   }
@@ -147,7 +204,7 @@ export default function Workspace() {
       <InitialPasswordDialog
         user={data.user}
         onLogout={() => {
-          setData(null);
+          endSession();
           navigate('home');
         }}
         onSaved={async () => {
@@ -155,7 +212,7 @@ export default function Workspace() {
             await refresh();
             setNotice('个人密码已设置，请记住新密码');
           } catch {
-            setData(null);
+            endSession();
             setError('新密码已保存，请使用新密码重新登录');
           }
         }}
@@ -298,6 +355,16 @@ export default function Workspace() {
   );
   return (
     <div className="app-shell">
+      {changingPassword && (
+        <ChangePasswordDialog
+          onCancel={() => setChangingPassword(false)}
+          onSaved={async () => {
+            setChangingPassword(false);
+            await refresh();
+            setNotice('密码已修改，其他设备的旧登录已退出');
+          }}
+        />
+      )}
       {taskToDelete && canManageTask(data.user, taskToDelete) && (
         <DeleteTaskDialog
           key={taskToDelete.id}
@@ -361,10 +428,17 @@ export default function Workspace() {
             </span>
             <button
               className="text-button"
+              disabled={busy}
+              onClick={() => setChangingPassword(true)}
+            >
+              修改密码
+            </button>
+            <button
+              className="text-button"
               onClick={() =>
                 void perform(async () => {
                   await api('logout', {});
-                  setData(null);
+                  endSession();
                   navigate('home');
                 })
               }
@@ -518,7 +592,7 @@ export default function Workspace() {
               userId={data.user.id}
               onSelfUpdated={refresh}
               onRelogin={() => {
-                setData(null);
+                endSession();
                 navigate('home');
                 setError('账号信息已更新，请使用新的账号和密码重新登录');
               }}
@@ -559,6 +633,7 @@ export default function Workspace() {
                 key={detail.task.id}
                 {...detail}
                 done={(receipt) => {
+                  if (accountId.current !== data.user.id) return;
                   setData((previous) =>
                     previous && previous.user.id === data.user.id
                       ? {

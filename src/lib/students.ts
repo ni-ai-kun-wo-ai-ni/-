@@ -3,6 +3,7 @@ import { hash } from 'bcryptjs';
 import { z } from 'zod';
 import { writeTransaction } from './db';
 import { HttpError, teacherOnly } from './auth';
+import { activeActor } from './auth';
 import { publicUser } from './access';
 
 const studentSchema = z
@@ -33,6 +34,8 @@ export async function createStudent(actor: User, raw: unknown) {
   const passwordHash = await hash('123456', 12);
   try {
     return await writeTransaction(async (tx) => {
+      const active = await activeActor(tx, actor);
+      teacherOnly(active);
       const cls = input.classId
         ? await tx.class.findUnique({ where: { id: input.classId } })
         : null;
@@ -70,6 +73,8 @@ export async function deleteStudent(actor: User, id: string, raw: unknown) {
     .parse(raw);
   // 原子删除关联数据；教师账号不会进入此删除路径。
   await writeTransaction(async (tx) => {
+    const active = await activeActor(tx, actor);
+    teacherOnly(active);
     const student = await tx.user.findUnique({ where: { id } });
     if (!student) throw new HttpError(404, '学生账号不存在或已被删除');
     if (student.role !== 'STUDENT')
@@ -96,6 +101,8 @@ export async function transferStudent(actor: User, id: string, raw: unknown) {
     .strict()
     .parse(raw);
   return writeTransaction(async (tx) => {
+    const active = await activeActor(tx, actor);
+    teacherOnly(active);
     const student = await tx.user.findUnique({ where: { id } });
     if (!student) throw new HttpError(404, '学生账号不存在');
     if (student.role !== 'STUDENT') throw new HttpError(403, '只能为学生办理转班');
@@ -125,6 +132,8 @@ export async function setStudentIdentity(actor: User, id: string, raw: unknown) 
     .strict()
     .parse(raw);
   return writeTransaction(async (tx) => {
+    const active = await activeActor(tx, actor);
+    teacherOnly(active);
     const student = await tx.user.findUnique({ where: { id } });
     if (!student) throw new HttpError(404, '学生账号不存在');
     if (student.role !== 'STUDENT')

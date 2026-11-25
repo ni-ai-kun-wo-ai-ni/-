@@ -1,6 +1,8 @@
+import { changeOwnPassword } from '@/lib/account-password';
+import { activeActor } from '@/lib/auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { compare } from 'bcryptjs';
+import { verifyLoginPassword } from '@/lib/login-verification';
 import { z } from 'zod';
 import ExcelJS from 'exceljs';
 import { db, writeTransaction } from '@/lib/db';
@@ -57,7 +59,11 @@ async function handle(req: NextRequest, ctx: Context) {
       const input = z
         .object({
           username: z.string().trim().min(1).max(60),
-          password: z.string().min(1).max(100),
+          password: z
+            .string()
+            .min(1)
+            .max(72)
+            .refine((value) => Buffer.byteLength(value, 'utf8') <= 72),
         })
         .parse(await readJson(req));
       traffic.rates.check('login-account:' + input.username, 20, 60000);
@@ -70,12 +76,13 @@ async function handle(req: NextRequest, ctx: Context) {
           Math.max(1, Math.ceil((attempt.until - Date.now()) / 1000)),
         );
       const user = await db.user.findUnique({ where: { username: input.username } });
+      const verified = await verifyLoginPassword(input.password, user?.passwordHash);
       if (
         !user ||
         (input.password === '123456' &&
           (!user.mustChangePassword || !['STUDENT', 'TEACHER'].includes(user.role))) ||
         (process.env.PUBLIC_MODE === 'true' && input.password === 'Demo2026!') ||
-        !(await compare(input.password, user.passwordHash))
+        !verified
       ) {
         const old = attempt && attempt.until > Date.now() ? attempt.count : 0;
         for (const [name, value] of attempts) if (value.until <= Date.now()) attempts.delete(name);
@@ -101,10 +108,12 @@ async function handle(req: NextRequest, ctx: Context) {
     if (key === 'students/import') traffic.rates.check('import:' + user.id, 120, 60000);
     if (
       key === 'students/import' ||
-      path[2] === 'export' ||
-      (write && ['students', 'teachers', 'account/initial-password'].includes(key))
+      ['report', 'export'].includes(path[2]) ||
+      (write &&
+        ['students', 'teachers', 'account/initial-password', 'account/password'].includes(key))
     )
       releases.push(await traffic.expensive.acquire());
+    if (key === 'account/password' && write) traffic.rates.check('password:' + user.id, 5, 900000);
     if (key === 'logout' && write) {
       const jar = await cookies();
       const token = jar.get('grade_session')?.value;
@@ -114,8 +123,13 @@ async function handle(req: NextRequest, ctx: Context) {
     }
     if (key === 'account/initial-password' && write) {
       if (!user.mustChangePassword) throw new HttpError(409, '当前账号已设置密码');
-      await completeInitialPassword(user.id, await readJson(req));
-      await createSession(user.id);
+      const updated = await completeInitialPassword(
+        user.id,
+        await readJson(req),
+        user.passwordHash,
+        user.sessionId,
+      );
+      await createSession(user.id, updated.passwordHash, updated.username);
       return json({ ok: true });
     }
     if (user.mustChangePassword) {
@@ -124,6 +138,11 @@ async function handle(req: NextRequest, ctx: Context) {
         return json({ user: me, tasks: [], officerTasks: [], students: [], grades: [] });
       }
       throw new HttpError(403, '请先设置自己的密码，再使用系统');
+    }
+    if (key === 'account/password' && write) {
+      const updated = await changeOwnPassword(user, await readJson(req));
+      await createSession(user.id, updated.passwordHash, updated.username);
+      return json({ ok: true });
     }
     if (path.length === 2 && path[0] === 'attachments' && !write) {
       return await downloadAttachment(
@@ -320,6 +339,8 @@ async function handle(req: NextRequest, ctx: Context) {
       )
         throw new HttpError(400, '请选择本年级的有效学生');
       const task = await writeTransaction(async (tx) => {
+        if (!canPublishTasks(await activeActor(tx, user)))
+          throw new HttpError(403, '当前身份不能发布任务');
         const managerIds = input.managerIds || [];
         if (managerIds.includes(user.id))
           throw new HttpError(400, '创建人自动拥有管理权限，无需重复选择');
@@ -362,12 +383,13 @@ async function handle(req: NextRequest, ctx: Context) {
         // 先删除提交（答案级联删除），再删除任务（字段和填写对象级联删除）。
         // 同一事务保证任一步失败时，任务与历史答案都不会被部分删除。
         await writeTransaction(async (tx) => {
+          const active = await activeActor(tx, user);
           const task = await tx.collectionTask.findUnique({
             where: { id: taskId },
             include: { managers: true },
           });
           if (!task) throw new HttpError(404, '任务不存在或已被删除');
-          if (!canManageTask(user, task)) throw new HttpError(403, '无权管理此任务');
+          if (!canManageTask(active, task)) throw new HttpError(403, '无权管理此任务');
           if (task.title !== confirmTitle) throw new HttpError(400, '任务名称不匹配，请重新核对');
           await tx.submission.deleteMany({ where: { taskId } });
           await tx.collectionTask.delete({ where: { id: taskId } });
@@ -383,12 +405,13 @@ async function handle(req: NextRequest, ctx: Context) {
           .parse(await readJson(req));
         // 状态检查和更新放在同一事务，避免并发发布覆盖手动截止。
         await writeTransaction(async (tx) => {
+          const active = await activeActor(tx, user);
           const old = await tx.collectionTask.findUnique({
             where: { id: taskId },
             include: { managers: true },
           });
           if (!old) throw new HttpError(404, '任务不存在');
-          if (!canManageTask(user, old)) throw new HttpError(403, '无权管理此任务');
+          if (!canManageTask(active, old)) throw new HttpError(403, '无权管理此任务');
           if (input.status === 'OPEN' && old.status !== 'DRAFT')
             throw new HttpError(400, '只有草稿可以发布');
           const deadline = input.deadline ? new Date(input.deadline) : old.deadline;
@@ -407,12 +430,13 @@ async function handle(req: NextRequest, ctx: Context) {
           .parse(await readJson(req));
         if (new Date(deadline) <= new Date()) throw new HttpError(400, '截止时间必须晚于现在');
         const updated = await writeTransaction(async (tx) => {
+          const active = await activeActor(tx, user);
           const old = await tx.collectionTask.findUnique({
             where: { id: taskId },
             include: { managers: true },
           });
           if (!old) throw new HttpError(404, '任务不存在');
-          if (!canManageTask(user, old)) throw new HttpError(403, '无权管理此任务');
+          if (!canManageTask(active, old)) throw new HttpError(403, '无权管理此任务');
           if (old.status === 'CLOSED') throw new HttpError(400, '手动结束的任务不能更改截止时间');
           return tx.collectionTask.update({
             where: { id: taskId },
@@ -432,7 +456,7 @@ async function handle(req: NextRequest, ctx: Context) {
           sheet.addRow([
             row.name,
             row.studentNumber,
-            row.class?.name,
+            row.class?.name || '暂未分班',
             ...fields.map((f) => {
               const answer = row.submission?.answers?.find((a) => a.fieldId === f.id);
               const value = answer ? JSON.parse(answer.value) : '';
@@ -506,6 +530,8 @@ async function handle(req: NextRequest, ctx: Context) {
         const saveStart = performance.now();
         const submission = await writeTransaction(
           async (tx) => {
+            const active = await activeActor(tx, user);
+            if (active.role !== 'STUDENT') throw new HttpError(403, '只有学生可以填写');
             if (requestKey) {
               const previous = await tx.submissionRequest.findUnique({
                 where: { taskId_userId_key: { taskId, userId: user.id, key: requestKey } },

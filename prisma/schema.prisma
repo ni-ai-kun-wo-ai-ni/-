@@ -53,6 +53,8 @@ model Session {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
+  @@index([expiresAt])
+  @@index([userId])
 }
 
 model CollectionTask {

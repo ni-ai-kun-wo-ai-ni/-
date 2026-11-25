@@ -1,9 +1,11 @@
 import ExcelJS from 'exceljs';
+import { assertSafeXlsx } from './xlsx-safety';
 import { Prisma, type User } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { z } from 'zod';
 import { db, writeTransaction } from './db';
 import { HttpError, teacherOnly } from './auth';
+import { activeActor } from './auth';
 import {
   MAX_IMPORT_BYTES,
   MAX_IMPORT_ROWS,
@@ -130,8 +132,10 @@ function cellText(cell: ExcelJS.Cell, numeric = false) {
 
 async function parseStudents(file: File, edits: StudentImportEdit[]) {
   const book = new ExcelJS.Workbook();
+  const bytes = await file.arrayBuffer();
+  assertSafeXlsx(bytes);
   try {
-    await book.xlsx.load(await file.arrayBuffer());
+    await book.xlsx.load(bytes);
   } catch {
     throw new HttpError(400, '无法读取文件，请使用未加密的有效 .xlsx 文件');
   }
@@ -264,6 +268,7 @@ export async function importStudents(actor: User, request: Request) {
   try {
     await writeTransaction(
       async (tx) => {
+        teacherOnly(await activeActor(tx, actor));
         // 确认导入时重新检查，不能依赖之前预览的结果或客户端提交的身份。
         if (classId && !(await tx.class.findUnique({ where: { id: classId } })))
           throw new HttpError(409, '班级已被删除，请重新选择');
