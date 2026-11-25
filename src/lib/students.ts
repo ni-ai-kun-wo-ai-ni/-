@@ -23,6 +23,7 @@ const studentSchema = z
       .nullish()
       .transform((value) => value || null),
     isClassOfficer: z.boolean(),
+    isStudentOfficer: z.boolean().default(false),
   })
   .strict();
 

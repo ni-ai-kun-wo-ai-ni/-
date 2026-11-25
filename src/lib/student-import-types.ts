@@ -5,11 +5,15 @@ export type StudentImportEdit = {
   name?: string;
   studentNumber?: string;
   remove?: boolean;
+  isClassOfficer?: boolean;
+  isStudentOfficer?: boolean;
 };
 export type StudentImportRow = {
   rowNumber: number;
   name: string;
   studentNumber: string;
+  isClassOfficer: boolean;
+  isStudentOfficer: boolean;
   errors: string[];
 };
 export type StudentImportPreview = {

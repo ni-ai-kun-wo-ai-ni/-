@@ -54,7 +54,10 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
         [student, 403],
         [monitor, 403],
       ] as const)
-        assert.equal((await request('students', cookie, input)).status, status);
+        assert.equal(
+          (await request('students', cookie, { ...input, isStudentOfficer: true })).status,
+          status,
+        );
     });
     await t.test('拒绝无效字段、自定义账号密码、伪造教师身份和不存在的班级', async () => {
       for (const payload of [
@@ -64,6 +67,7 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
         { ...input, password: 'Demo2026!' },
         { ...input, password: '汉'.repeat(30) + 'Aa1' },
         { ...input, role: 'TEACHER' },
+        { ...input, isStudentOfficer: 'true' },
       ])
         assert.equal((await request('students', teacher, payload)).status, 400);
       assert.equal(
@@ -143,6 +147,68 @@ test('教师管理学生账号：创建、权限、删除关联与 Session 失�
       assert.equal(saved.classId, input.classId);
       assert.equal(saved.gradeId, null);
       assert.equal(saved.class?.gradeId, bootstrap.grades[0].id);
+    });
+    await t.test('创建时可直接设学生干部：未分配、只选年级、已分班及兼任班干部', async () => {
+      for (const [index, placement] of [
+        { classId: null, gradeId: null, isClassOfficer: false },
+        { classId: null, gradeId: bootstrap.grades[0].id, isClassOfficer: false },
+        { classId: input.classId, isClassOfficer: false },
+        { classId: input.classId, isClassOfficer: true },
+      ].entries()) {
+        const number = 'leader_' + token + '_' + index;
+        const response = await request('students', teacher, {
+          name: '虚构新建学生干部',
+          studentNumber: number,
+          ...placement,
+          isStudentOfficer: true,
+        });
+        assert.equal(response.status, 200);
+        const saved: Person = await response.json();
+        createdIds.push(saved.id);
+        assert.equal(saved.role, 'STUDENT');
+        assert.equal(saved.isStudentOfficer, true);
+        assert.equal(saved.isClassOfficer, placement.isClassOfficer);
+        assert.equal(saved.classId, placement.classId);
+        assert.equal(saved.gradeId, placement.classId ? null : placement.gradeId);
+        assert.equal(saved.mustChangePassword, true);
+        if (index !== 0) continue;
+        const initialCookie = await login(number, '123456');
+        assert.equal((await request('tasks', initialCookie, {})).status, 403);
+        const changed = await request('account/initial-password', initialCookie, {
+          password: 'LeaderNew2026!',
+          confirmPassword: 'LeaderNew2026!',
+        });
+        assert.equal(changed.status, 200);
+        const leaderCookie = changed.headers.get('set-cookie')!.split(';')[0];
+        const home: Bootstrap = await (await request('bootstrap', leaderCookie)).json();
+        assert.equal(home.user.classId, null);
+        assert.equal(home.user.gradeId, null);
+        assert.equal(home.user.isStudentOfficer, true);
+        assert.ok(home.grades.some((g) => g.id === bootstrap.grades[0].id));
+        const task = await request('tasks', leaderCookie, {
+          title: '未分配干部发布测试',
+          description: '',
+          gradeId: bootstrap.grades[0].id,
+          deadline: new Date(Date.now() + 86400000).toISOString(),
+          allowEdit: true,
+          officerCanView: false,
+          targetIds: [bootstrap.students[0].id],
+          fields: [{ label: '测试', type: 'TEXT', required: false, options: [] }],
+        });
+        assert.equal(task.status, 200);
+        const taskId = (await task.json()).id;
+        taskIds.push(taskId);
+        assert.equal((await request('tasks/' + taskId + '/report', leaderCookie)).status, 200);
+        assert.equal(
+          (await request('students', leaderCookie, { ...input, isStudentOfficer: true })).status,
+          403,
+        );
+        assert.equal((await request('teachers', leaderCookie)).status, 403);
+        const candidates = await (await request('bootstrap', teacher)).json();
+        assert.ok(
+          candidates.managerCandidates.some((person: { id: string }) => person.id === saved.id),
+        );
+      }
     });
     extraIds.push(...createdIds.splice(0));
     let person: Person;

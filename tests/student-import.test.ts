@@ -192,6 +192,7 @@ test('学生表格导入：教师权限、逐行预览、整批验证与首次�
         assert.equal(user.username, user.studentNumber);
         assert.equal(user.role, 'STUDENT');
         assert.equal(user.isClassOfficer, false);
+        assert.equal(user.isStudentOfficer, false);
         assert.equal(user.mustChangePassword, true);
         assert.equal(await compare('123456', user.passwordHash), true);
         assert.equal(await db.taskTarget.count({ where: { userId: user.id } }), 0);
@@ -446,6 +447,120 @@ test('学生表格导入：教师权限、逐行预览、整批验证与首次�
         assert.equal((await upload(teacher, '', invalid, 'commit', { edits })).status, 200);
       },
     );
+    await t.test('预览逐人设置普通学生、班干部、学生干部和兼任，导入按最终身份保存', async () => {
+      const bytes = await workbook(
+        Array.from({ length: 4 }, (_, i) => ['身份测试' + i, prefix + 'roles' + i]),
+      );
+      const edits = JSON.stringify([
+        { rowNumber: 3, isClassOfficer: true },
+        { rowNumber: 4, isStudentOfficer: true },
+        { rowNumber: 5, isStudentOfficer: true, isClassOfficer: true },
+      ]);
+      const checked = await upload(teacher, classId, bytes, 'preview', { edits });
+      assert.equal(checked.status, 200);
+      const preview: StudentImportPreview = await checked.json();
+      assert.equal(preview.canImport, true);
+      assert.deepEqual(
+        preview.rows.map((r) => [r.isStudentOfficer, r.isClassOfficer]),
+        [
+          [false, false],
+          [false, true],
+          [true, false],
+          [true, true],
+        ],
+      );
+      assert.equal(
+        await db.user.count({ where: { username: { startsWith: prefix + 'roles' } } }),
+        0,
+      );
+      assert.equal((await upload(teacher, classId, bytes, 'commit', { edits })).status, 200);
+      const users = await db.user.findMany({
+        where: { username: { startsWith: prefix + 'roles' } },
+        orderBy: { username: 'asc' },
+      });
+      assert.deepEqual(
+        users.map((r) => [r.isStudentOfficer, r.isClassOfficer]),
+        [
+          [false, false],
+          [false, true],
+          [true, false],
+          [true, true],
+        ],
+      );
+      assert.ok(users.every((u) => u.role === 'STUDENT' && u.mustChangePassword));
+    });
+    await t.test('未分配或只选年级可导入学生干部，未分班干部整批拦截，不接受伪造权限', async () => {
+      for (const [index, selectedGrade] of ['', gradeId].entries()) {
+        const number = prefix + 'leader' + index;
+        const bytes = await workbook([['未分班学生干部', number]]);
+        const edits = JSON.stringify([{ rowNumber: 2, isStudentOfficer: true }]);
+        const preview: StudentImportPreview = await (
+          await upload(teacher, '', bytes, 'preview', { edits, gradeId: selectedGrade })
+        ).json();
+        assert.equal(preview.canImport, true);
+        assert.equal(preview.rows[0].isStudentOfficer, true);
+        assert.equal(
+          (await upload(teacher, '', bytes, 'commit', { edits, gradeId: selectedGrade })).status,
+          200,
+        );
+        const user = await db.user.findUniqueOrThrow({ where: { username: number } });
+        assert.equal(user.isStudentOfficer, true);
+        assert.equal(user.isClassOfficer, false);
+        assert.equal(user.classId, null);
+        assert.equal(user.gradeId, selectedGrade || null);
+      }
+      const bytes = await workbook([
+        ['非法班干部', prefix + 'badrole1'],
+        ['有效同学', prefix + 'badrole2'],
+      ]);
+      const edits = JSON.stringify([
+        { rowNumber: 2, isStudentOfficer: true, isClassOfficer: true },
+      ]);
+      const preview: StudentImportPreview = await (
+        await upload(teacher, '', bytes, 'preview', { edits })
+      ).json();
+      assert.equal(preview.canImport, false);
+      assert.ok(preview.rows[0].errors.some((message) => message.includes('班干部')));
+      assert.equal((await upload(teacher, '', bytes, 'commit', { edits })).status, 400);
+      assert.equal(
+        await db.user.count({ where: { username: { startsWith: prefix + 'badrole' } } }),
+        0,
+      );
+      for (const edit of [
+        { rowNumber: 2, isStudentOfficer: 'true' },
+        { rowNumber: 2, isSuperAdmin: true },
+        { rowNumber: 2, role: 'TEACHER' },
+      ])
+        assert.equal(
+          (await upload(teacher, classId, bytes, 'commit', { edits: JSON.stringify([edit]) }))
+            .status,
+          400,
+        );
+      assert.equal((await upload(student, classId, bytes, 'commit', { edits })).status, 403);
+      assert.equal((await upload(monitor, classId, bytes, 'commit', { edits })).status, 403);
+    });
+    await t.test('身份可与姓名学号编辑和移除一起应用，也可改回普通学生', async () => {
+      const bytes = await workbook([
+        ['移除干部', prefix + 'removeleader'],
+        ['更名干部', prefix + 'oldleader'],
+      ]);
+      const edits = JSON.stringify([
+        { rowNumber: 2, isStudentOfficer: true, remove: true },
+        {
+          rowNumber: 3,
+          name: '改回普通同学',
+          studentNumber: prefix + 'normalrole',
+          isStudentOfficer: false,
+          isClassOfficer: false,
+        },
+      ]);
+      assert.equal((await upload(teacher, '', bytes, 'commit', { edits })).status, 200);
+      assert.equal(await db.user.count({ where: { username: prefix + 'removeleader' } }), 0);
+      const user = await db.user.findUniqueOrThrow({ where: { username: prefix + 'normalrole' } });
+      assert.equal(user.name, '改回普通同学');
+      assert.equal(user.isStudentOfficer, false);
+      assert.equal(user.isClassOfficer, false);
+    });
     await t.test('并发导入同一表格最多创建一批；预览后班级删除会被重新校验', async () => {
       const bytes = await workbook([['虚构并发同学', `${prefix}concurrent`]]);
       const results = await Promise.all([

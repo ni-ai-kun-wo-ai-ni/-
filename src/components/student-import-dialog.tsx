@@ -27,6 +27,28 @@ export default function StudentImportDialog({
   const [error, setError] = useState('');
   const [edits, setEdits] = useState<Record<number, StudentImportEdit>>({});
   const [needsCheck, setNeedsCheck] = useState(false);
+  function clearClassOfficers() {
+    const officers = preview?.rows.filter((row) => row.isClassOfficer) || [];
+    setEdits((previous) => {
+      const next = { ...previous };
+      for (const row of officers)
+        next[row.rowNumber] = {
+          ...next[row.rowNumber],
+          rowNumber: row.rowNumber,
+          isClassOfficer: false,
+        };
+      return next;
+    });
+    setPreview((previous) =>
+      previous
+        ? {
+            ...previous,
+            canImport: false,
+            rows: previous.rows.map((row) => ({ ...row, isClassOfficer: false })),
+          }
+        : null,
+    );
+  }
   function editRow(rowNumber: number, patch: Omit<StudentImportEdit, 'rowNumber'>) {
     setEdits((previous) => ({
       ...previous,
@@ -98,10 +120,11 @@ export default function StudentImportDialog({
           下载 Excel 模板
         </a>
         <p className="muted">
-          账号为学号，初始密码 123456，首次登录必须改密。全部按普通学生创建，不自动加入历史任务。
+          账号为学号，初始密码
+          123456，首次登录必须改密。默认按普通学生创建，可在预览中逐人设置干部身份，不自动加入历史任务。
         </p>
         <p className="muted">
-          姓名允许重名，以学号和登录账号判断重复。预览中可以修改姓名、学号或移除本次导入行，已有学生账号不会被覆盖或删除。
+          姓名允许重名，以学号和登录账号判断重复。预览中可以修改姓名、学号、身份或移除本次导入行，已有学生账号不会被覆盖或删除。学生干部无需分配年级或班级；班干部需先选择班级。更换年级或取消班级会清除班干部设置，保留学生干部身份。
         </p>
         <fieldset className="student-fields" disabled={!!busy}>
           <div className="form-grid">
@@ -112,6 +135,7 @@ export default function StudentImportDialog({
                 onChange={(e) => {
                   setGradeId(e.target.value);
                   setClassId('');
+                  clearClassOfficers();
                   setPreview((previous) => (previous ? { ...previous, canImport: false } : null));
                   setNeedsCheck(true);
                   setError('');
@@ -132,6 +156,7 @@ export default function StudentImportDialog({
                 disabled={!gradeId}
                 onChange={(e) => {
                   setClassId(e.target.value);
+                  if (!e.target.value) clearClassOfficers();
                   setPreview((previous) => (previous ? { ...previous, canImport: false } : null));
                   setNeedsCheck(true);
                   setError('');
@@ -179,7 +204,7 @@ export default function StudentImportDialog({
               </b>
               ，共 {preview.rows.length} 人。
               {needsCheck
-                ? '名单或归属已修改，请点击“重新检查名单”。'
+                ? '名单、身份或归属已修改，请点击“重新检查名单”。'
                 : preview.canImport
                   ? '检查通过，请核对后确认导入。'
                   : '存在错误，请在下方修改信息或移除重复行，再重新检查。'}
@@ -205,6 +230,7 @@ export default function StudentImportDialog({
                     <th>表格行号</th>
                     <th>姓名</th>
                     <th>学号 / 账号</th>
+                    <th>身份</th>
                     <th>检查结果</th>
                     <th>操作</th>
                   </tr>
@@ -232,6 +258,38 @@ export default function StudentImportDialog({
                             editRow(row.rowNumber, { studentNumber: e.target.value })
                           }
                         />
+                      </td>
+                      <td>
+                        <select
+                          aria-label={`第${row.rowNumber}行身份`}
+                          value={
+                            row.isStudentOfficer
+                              ? row.isClassOfficer
+                                ? 'BOTH'
+                                : 'STUDENT_OFFICER'
+                              : row.isClassOfficer
+                                ? 'CLASS_OFFICER'
+                                : 'STUDENT'
+                          }
+                          disabled={!!busy}
+                          onChange={(e) =>
+                            editRow(row.rowNumber, {
+                              isStudentOfficer: ['STUDENT_OFFICER', 'BOTH'].includes(
+                                e.target.value,
+                              ),
+                              isClassOfficer: ['CLASS_OFFICER', 'BOTH'].includes(e.target.value),
+                            })
+                          }
+                        >
+                          <option value="STUDENT">普通学生</option>
+                          <option value="STUDENT_OFFICER">学生干部</option>
+                          <option value="CLASS_OFFICER" disabled={!classId}>
+                            班干部
+                          </option>
+                          <option value="BOTH" disabled={!classId}>
+                            学生干部兼班干部
+                          </option>
+                        </select>
                       </td>
                       <td className={row.errors.length ? 'error' : ''}>
                         {row.errors.join('；') || '可导入'}

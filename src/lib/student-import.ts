@@ -19,6 +19,8 @@ const editsSchema = z
         name: z.string().max(200).optional(),
         studentNumber: z.string().max(200).optional(),
         remove: z.boolean().optional(),
+        isClassOfficer: z.boolean().optional(),
+        isStudentOfficer: z.boolean().optional(),
       })
       .strict(),
   )
@@ -148,7 +150,14 @@ async function parseStudents(file: File, edits: StudentImportEdit[]) {
   const sourceRows = new Set<number>();
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
-    const record: StudentImportRow = { rowNumber, name: '', studentNumber: '', errors: [] };
+    const record: StudentImportRow = {
+      rowNumber,
+      name: '',
+      studentNumber: '',
+      isClassOfficer: false,
+      isStudentOfficer: false,
+      errors: [],
+    };
     let nameError = '',
       numberError = '';
     try {
@@ -165,6 +174,8 @@ async function parseStudents(file: File, edits: StudentImportEdit[]) {
     sourceRows.add(rowNumber);
     const edit = editsByRow.get(rowNumber);
     if (edit?.remove) return;
+    record.isClassOfficer = edit?.isClassOfficer ?? false;
+    record.isStudentOfficer = edit?.isStudentOfficer ?? false;
     if (edit?.name !== undefined) record.name = edit.name.trim();
     else if (nameError) record.errors.push(nameError);
     if (edit?.studentNumber !== undefined) record.studentNumber = edit.studentNumber.trim();
@@ -210,6 +221,9 @@ export async function importStudents(actor: User, request: Request) {
   if (gradeId && !grade) throw new HttpError(400, '所选年级不存在，请刷新后重试');
   if (cls && gradeId && cls.gradeId !== gradeId) throw new HttpError(400, '班级不属于所选年级');
   const rows = await parseStudents(file, edits);
+  for (const row of rows) {
+    if (row.isClassOfficer && !classId) row.errors.push('设为班干部需先选择班级');
+  }
   const existing = await conflicts(db, rows);
   const used = new Set(existing.flatMap((user) => [user.username, user.studentNumber]));
   for (const row of rows)
@@ -232,7 +246,8 @@ export async function importStudents(actor: User, request: Request) {
       studentNumber: row.studentNumber,
       username: row.studentNumber,
       role: 'STUDENT',
-      isClassOfficer: false,
+      isClassOfficer: row.isClassOfficer,
+      isStudentOfficer: row.isStudentOfficer,
       mustChangePassword: true,
       classId,
       gradeId: classId ? null : gradeId,

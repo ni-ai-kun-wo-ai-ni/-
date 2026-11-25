@@ -33,6 +33,7 @@ export default function StudentManagement({
   const [chosenGrade, setChosenGrade] = useState('');
   const [chosenClass, setChosenClass] = useState('');
   const [newClassOfficer, setNewClassOfficer] = useState(false);
+  const [newStudentOfficer, setNewStudentOfficer] = useState(false);
   const [newStudentNumber, setNewStudentNumber] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
   const students = data.students.filter(
@@ -53,6 +54,7 @@ export default function StudentManagement({
     setChosenGrade(gradeFilter || '');
     setChosenClass('');
     setNewClassOfficer(false);
+    setNewStudentOfficer(false);
     setDeleting(null);
     setTransferring(null);
     setSettingIdentity(null);
@@ -288,6 +290,7 @@ export default function StudentManagement({
                     gradeId: chosenGrade || null,
                     classId: chosenClass || null,
                     isClassOfficer: newClassOfficer,
+                    isStudentOfficer: newStudentOfficer,
                   });
                   formRef.current?.reset();
                   setAdding(false);
@@ -386,6 +389,15 @@ export default function StudentManagement({
                 <label>
                   初始密码
                   <input value="123456" readOnly />
+                </label>
+                <label className="check">
+                  <input
+                    name="isStudentOfficer"
+                    type="checkbox"
+                    checked={newStudentOfficer}
+                    onChange={(e) => setNewStudentOfficer(e.target.checked)}
+                  />
+                  设为学生干部（部门负责人，无需分配年级或班级）
                 </label>
                 <label className="check">
                   <input

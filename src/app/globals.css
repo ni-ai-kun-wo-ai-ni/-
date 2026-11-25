@@ -124,6 +124,9 @@
   font-size: 12px;
 }
 .import-preview td:nth-child(4) {
+  min-width: 180px;
+}
+.import-preview td:nth-child(5) {
   min-width: 200px;
   white-space: normal;
 }
