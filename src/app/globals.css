@@ -628,6 +628,25 @@ input[type='radio'] {
   padding: 15px;
   background: #f4f8f5;
 }
+.target-picker {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+.target-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.target-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 16px 0 8px;
+}
 .target-list label {
   font-size: 11px;
 }

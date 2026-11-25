@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { api, type Bootstrap } from '@/lib/types';
 import { beijingInputToIso, defaultDeadline } from '@/lib/beijing-time';
+import TaskTargetPicker from './task-target-picker';
 const types: Record<string, string> = {
   TEXT: '单行文本',
   TEXTAREA: '多行文本',
@@ -43,6 +44,7 @@ export default function TaskBuilder({
         setError('');
         const form = new FormData(e.currentTarget);
         try {
+          if (specific && !targets.length) throw new Error('请至少选择一名填写学生');
           await api('tasks', {
             title: form.get('title'),
             description: form.get('description'),
@@ -161,24 +163,15 @@ export default function TaskBuilder({
           仅指定学生填写（不勾选则指定全年级）
         </label>
         {specific && (
-          <div className="target-list">
-            {(data.user.role === 'TEACHER' ? data.students : data.publisherStudents || [])
-              .filter((s) => (s.class?.gradeId || s.gradeId) === gradeId)
-              .map((s) => (
-                <label key={s.id} className="check">
-                  <input
-                    type="checkbox"
-                    checked={targets.includes(s.id)}
-                    onChange={(e) =>
-                      setTargets(
-                        e.target.checked ? [...targets, s.id] : targets.filter((id) => id !== s.id),
-                      )
-                    }
-                  />
-                  {s.name} · {s.class?.name || '暂未分班'}
-                </label>
-              ))}
-          </div>
+          <TaskTargetPicker
+            students={(data.user.role === 'TEACHER'
+              ? data.students
+              : data.publisherStudents || []
+            ).filter((s) => (s.class?.gradeId || s.gradeId) === gradeId)}
+            gradeName={data.grades.find((g) => g.id === gradeId)?.name || ''}
+            targets={targets}
+            setTargets={setTargets}
+          />
         )}
       </div>
       <div className="panel">
