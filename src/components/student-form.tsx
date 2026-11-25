@@ -34,6 +34,12 @@ export default function StudentForm({
   const [files, setFiles] = useState<Record<string, File[]>>({});
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const inFlight = useRef(false);
+  const intent = useRef<{
+    fingerprint: string;
+    key: string;
+    version: string;
+    fileObjects: File[];
+  } | null>(null);
   const locked = task.displayStatus !== '收集中' || (!!submission && !task.allowEdit);
   return (
     <form
@@ -45,6 +51,24 @@ export default function StudentForm({
         setBusy(true);
         setError('');
         try {
+          const fingerprint = JSON.stringify([
+            answers,
+            Object.entries(files).map(([field, selected]) => [
+              field,
+              selected.map((file) => [file.name, file.size, file.lastModified]),
+            ]),
+          ]);
+          const fileObjects = Object.values(files).flat();
+          if (
+            intent.current?.fingerprint !== fingerprint ||
+            fileObjects.some((file, index) => file !== intent.current?.fileObjects[index])
+          )
+            intent.current = {
+              fingerprint,
+              key: crypto.randomUUID(),
+              version: submission?.updatedAt || 'initial',
+              fileObjects,
+            };
           let receipt: SubmissionReceipt;
           if (Object.values(files).some((selected) => selected.length)) {
             const retained = (submission?.attachments || []).filter(
@@ -64,10 +88,10 @@ export default function StudentForm({
             for (const [fieldId, selected] of Object.entries(files))
               for (const file of selected) form.append(`files:${fieldId}`, file);
             setProgress({ phase: 'uploading', percent: 0, loaded: 0, total });
-            receipt = await sendSubmission(task.id, form, setProgress);
+            receipt = await sendSubmission(task.id, form, setProgress, intent.current!);
           } else {
             setProgress({ phase: 'saving', percent: null, loaded: 0, total: 0 });
-            receipt = await sendSubmission(task.id, answers, setProgress);
+            receipt = await sendSubmission(task.id, answers, setProgress, intent.current!);
           }
           done(receipt);
         } catch (e) {

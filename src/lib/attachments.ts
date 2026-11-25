@@ -1,4 +1,6 @@
+import { readJson, parseJsonText } from './request-body';
 import { canManageTask } from './permissions';
+import { traffic } from './traffic-guard';
 import type { FormField, Prisma, User } from '@prisma/client';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
@@ -36,7 +38,7 @@ function imageMime(data: Uint8Array) {
 
 export async function readSubmission(request: Request, fields: FormField[]) {
   if (!request.headers.get('content-type')?.startsWith('multipart/form-data'))
-    return { raw: await request.json(), uploads: [] as UploadedFile[] };
+    return { raw: await readJson(request), uploads: [] as UploadedFile[] };
   const limit = MAX_SUBMISSION_BYTES + 128 * 1024;
   if (Number(request.headers.get('content-length')) > limit)
     throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
@@ -44,6 +46,11 @@ export async function readSubmission(request: Request, fields: FormField[]) {
   if (!reader) throw new HttpError(400, '没有收到提交内容');
   let size = 0;
   let exceeded = false;
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel().catch(() => {});
+  }, 120000);
   // 边读取边交给 multipart 解析器，不再额外拼接一份完整请求体。
   const limitedBody = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -73,15 +80,17 @@ export async function readSubmission(request: Request, fields: FormField[]) {
       headers: { 'Content-Type': request.headers.get('content-type')! },
     }).formData();
   } catch {
+    if (timedOut) throw new HttpError(408, '附件接收超时，请检查网络后重试');
     if (exceeded) throw new HttpError(413, `每次提交附件总大小不能超过${MAX_SUBMISSION_MB} MB`);
     throw new HttpError(400, '附件上传格式不正确');
   } finally {
+    clearTimeout(timeout);
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
   if (form.getAll('answers').length !== 1 || typeof form.get('answers') !== 'string')
     throw new HttpError(400, '提交答案格式不正确');
-  const raw: unknown = JSON.parse(String(form.get('answers')));
+  const raw = parseJsonText(String(form.get('answers')));
   const uploads: UploadedFile[] = [];
   for (const [key, value] of form.entries()) {
     if (key === 'answers') continue;
@@ -213,6 +222,8 @@ export async function downloadAttachment(actor: User, id: string, preview: boole
     )
       throw new HttpError(403, '无权查看此附件');
   }
+  traffic.rates.consume('download-bytes:' + actor.id, file.size, 1024 * 1024 * 1024, 3600000);
+  traffic.rates.consume('download-bytes:global', file.size, 8 * 1024 * 1024 * 1024, 3600000);
   const bytes = await db.attachment.findUnique({ where: { id }, select: { data: true } });
   if (!bytes) throw new HttpError(404, '附件已被删除');
   return new Response(new Uint8Array(bytes.data), {

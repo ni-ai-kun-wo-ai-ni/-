@@ -1,6 +1,6 @@
 import { hash } from 'bcryptjs';
 import { z } from 'zod';
-import { db } from './db';
+import { writeTransaction } from './db';
 import { HttpError } from './auth';
 
 const schema = z
@@ -23,7 +23,7 @@ const schema = z
 export async function completeInitialPassword(userId: string, raw: unknown) {
   const input = schema.parse(raw);
   const passwordHash = await hash(input.password, 12);
-  await db.$transaction(async (tx) => {
+  await writeTransaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id: userId } });
     if (!user || !['STUDENT', 'TEACHER'].includes(user.role) || !user.mustChangePassword)
       throw new HttpError(409, '该账号已设置过密码，请使用新密码重新登录');

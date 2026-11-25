@@ -1,6 +1,6 @@
 import { Prisma, type User } from '@prisma/client';
 import { z } from 'zod';
-import { db } from './db';
+import { db, writeTransaction } from './db';
 import { HttpError, teacherOnly } from './auth';
 const name = z.string().trim().min(1).max(60);
 const gradeSchema = z.object({ name }).strict();
@@ -22,7 +22,7 @@ export async function createClass(actor: User, raw: unknown) {
   teacherOnly(actor);
   const input = classSchema.parse(raw);
   try {
-    return await db.$transaction(async (tx) => {
+    return await writeTransaction(async (tx) => {
       if (!(await tx.grade.findUnique({ where: { id: input.gradeId } })))
         throw new HttpError(400, '请选择有效的所属年级');
       return tx.class.create({ data: input, select: { id: true, name: true, gradeId: true } });
@@ -44,7 +44,7 @@ export async function deleteOrganization(
   const { confirmName } = deleteSchema.parse(raw);
   try {
     // 检查关联数据和删除放在同一个事务中；不级联删除学生、任务或提交。
-    await db.$transaction(async (tx) => {
+    await writeTransaction(async (tx) => {
       if (kind === 'class') {
         const cls = await tx.class.findUnique({
           where: { id },

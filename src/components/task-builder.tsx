@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api, type Bootstrap } from '@/lib/types';
 import { beijingInputToIso, defaultDeadline } from '@/lib/beijing-time';
 import TaskTargetPicker from './task-target-picker';
@@ -32,6 +32,7 @@ export default function TaskBuilder({
   const [managerIds, setManagerIds] = useState<string[]>([]);
   const [targets, setTargets] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const [error, setError] = useState('');
   const [deadline, setDeadline] = useState(defaultDeadline);
   const update = (index: number, value: Partial<DraftField>) =>
@@ -40,6 +41,8 @@ export default function TaskBuilder({
     <form
       onSubmit={async (e) => {
         e.preventDefault();
+        if (inFlight.current) return;
+        inFlight.current = true;
         setBusy(true);
         setError('');
         const form = new FormData(e.currentTarget);
@@ -71,6 +74,7 @@ export default function TaskBuilder({
           setError((e as Error).message);
         } finally {
           setBusy(false);
+          inFlight.current = false;
         }
       }}
     >

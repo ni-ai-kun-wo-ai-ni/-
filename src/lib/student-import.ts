@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { Prisma, type User } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { z } from 'zod';
-import { db } from './db';
+import { db, writeTransaction } from './db';
 import { HttpError, teacherOnly } from './auth';
 import {
   MAX_IMPORT_BYTES,
@@ -37,6 +37,11 @@ async function readUpload(request: Request) {
   if (!reader) throw new HttpError(400, '未收到上传文件');
   const chunks: Uint8Array[] = [];
   let size = 0;
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel().catch(() => {});
+  }, 60000);
   try {
     while (true) {
       const { value, done } = await reader.read();
@@ -48,7 +53,10 @@ async function readUpload(request: Request) {
       }
       chunks.push(value);
     }
+    if (timedOut) throw new HttpError(408, '接收表格超时，请重新上传');
   } finally {
+    clearTimeout(timeout);
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
   let form: FormData;
@@ -254,7 +262,7 @@ export async function importStudents(actor: User, request: Request) {
       passwordHash: await hash('123456', 12),
     });
   try {
-    await db.$transaction(
+    await writeTransaction(
       async (tx) => {
         // 确认导入时重新检查，不能依赖之前预览的结果或客户端提交的身份。
         if (classId && !(await tx.class.findUnique({ where: { id: classId } })))

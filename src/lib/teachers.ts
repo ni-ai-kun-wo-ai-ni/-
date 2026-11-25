@@ -1,7 +1,7 @@
 import { Prisma, type User } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { z } from 'zod';
-import { db } from './db';
+import { db, writeTransaction } from './db';
 import { HttpError, superAdminOnly } from './auth';
 
 const teacherSelect = {
@@ -36,7 +36,7 @@ export async function createTeacher(actor: User, raw: unknown) {
   const initialPassword = '123456';
   const passwordHash = await hash(initialPassword, 12);
   try {
-    const teacher = await db.$transaction(async (tx) => {
+    const teacher = await writeTransaction(async (tx) => {
       const current = await tx.user.findUnique({ where: { id: actor.id } });
       if (!current) throw new HttpError(401, '请重新登录');
       superAdminOnly(current);
@@ -65,7 +65,7 @@ export async function deleteTeacher(actor: User, id: string, raw: unknown) {
     .object({ confirmUsername: z.string().min(1).max(60) })
     .strict()
     .parse(raw);
-  await db.$transaction(async (tx) => {
+  await writeTransaction(async (tx) => {
     const current = await tx.user.findUnique({ where: { id: actor.id } });
     if (!current) throw new HttpError(401, '请重新登录');
     superAdminOnly(current);
@@ -102,7 +102,7 @@ export async function updateTeacher(actor: User, id: string, raw: unknown) {
     .parse(raw);
   const passwordHash = input.password === undefined ? undefined : await hash(input.password, 12);
   try {
-    return await db.$transaction(async (tx) => {
+    return await writeTransaction(async (tx) => {
       const current = await tx.user.findUnique({ where: { id: actor.id } });
       if (!current) throw new HttpError(401, '请重新登录');
       superAdminOnly(current);

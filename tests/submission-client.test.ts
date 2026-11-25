@@ -12,6 +12,8 @@ class FakeRequest {
   onload: (() => void) | null = null;
   onerror: (() => void) | null = null;
   onabort: (() => void) | null = null;
+  ontimeout: (() => void) | null = null;
+  timeout = 0;
   status = 200;
   responseText = '';
   headers: Record<string, string> = {};
@@ -45,11 +47,17 @@ test('上传进度和保存确认：100%不提前成功，失败保留可重试�
         form = new FormData();
       form.set('answers', '{}');
       let completed = false;
-      const pending = sendSubmission('task', form, (state) => states.push(state)).then((result) => {
+      const pending = sendSubmission('task', form, (state) => states.push(state), {
+        key: 'retry-intent',
+        version: 'initial',
+      }).then((result) => {
         completed = true;
         return result;
       });
       const request = FakeRequest.latest;
+      assert.equal(request.headers['Idempotency-Key'], 'retry-intent');
+      assert.equal(request.headers['X-Submission-Version'], 'initial');
+      assert.equal(request.timeout, 180000);
       request.upload.onprogress!({ loaded: 5, total: 10, lengthComputable: true });
       assert.equal(states.at(-1)?.percent, 50);
       request.upload.onload!();
@@ -69,6 +77,9 @@ test('上传进度和保存确认：100%不提前成功，失败保留可重试�
       FakeRequest.latest.onerror!();
       await assert.rejects(failed, /连接中断/);
       assert.equal(form.get('files:field'), file);
+      const timedOut = sendSubmission('task', form, () => {});
+      FakeRequest.latest.ontimeout!();
+      await assert.rejects(timedOut, /超时/);
       const rejected = sendSubmission('task', {}, () => {});
       const request = FakeRequest.latest;
       request.status = 403;

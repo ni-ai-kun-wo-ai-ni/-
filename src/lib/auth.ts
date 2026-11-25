@@ -1,15 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
-import { db } from './db';
+import { db, writeTransaction } from './db';
 import { isAllowedOrigin } from './request-origin';
-export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+import { HttpError } from './http-error';
+export { HttpError } from './http-error';
 export const tokenHash = (value: string) => createHash('sha256').update(value).digest('hex');
 export async function currentUser() {
   const token = (await cookies()).get('grade_session')?.value;
@@ -28,7 +22,7 @@ export async function createSession(
   expectedUsername?: string,
 ) {
   const token = randomBytes(32).toString('hex');
-  await db.$transaction(async (tx) => {
+  await writeTransaction(async (tx) => {
     // 防止旧密码登录与首次改密并发时，在改密完成后又创建一个旧凭据会话。
     if (
       expectedPasswordHash &&

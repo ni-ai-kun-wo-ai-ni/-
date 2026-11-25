@@ -112,7 +112,13 @@ async function main() {
     {
       windowsHide: true,
       stdio: 'inherit',
-      env: { ...process.env, PUBLIC_MODE: 'true', PUBLIC_ORIGIN: origin, COOKIE_SECURE: 'true' },
+      env: {
+        ...process.env,
+        PUBLIC_MODE: 'true',
+        PUBLIC_ORIGIN: origin,
+        COOKIE_SECURE: 'true',
+        TRUST_CLOUDFLARE_IP: 'true',
+      },
     },
   );
   app.on('error', (error) => {

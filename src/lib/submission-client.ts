@@ -11,6 +11,7 @@ export function sendSubmission(
   taskId: string,
   body: FormData | Record<string, unknown>,
   onProgress: (progress: UploadProgress) => void,
+  intent?: { key: string; version: string },
 ): Promise<SubmissionReceipt> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
@@ -67,7 +68,14 @@ export function sendSubmission(
     };
     request.onerror = () => reject(new Error('上传连接中断，请检查网络后重试，已选文件仍保留'));
     request.onabort = () => reject(new Error('上传已取消，填写内容和已选文件仍保留'));
+    request.timeout = 180000;
+    request.ontimeout = () =>
+      reject(new Error('等待服务器确认超时，请重试，填写内容和已选文件仍保留'));
     request.open('POST', `/api/tasks/${encodeURIComponent(taskId)}/submit`);
+    if (intent) {
+      request.setRequestHeader('Idempotency-Key', intent.key);
+      request.setRequestHeader('X-Submission-Version', intent.version);
+    }
     if (!multipart) request.setRequestHeader('Content-Type', 'application/json');
     request.send(multipart ? body : JSON.stringify(body));
   });

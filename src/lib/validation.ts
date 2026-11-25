@@ -69,7 +69,8 @@ export function validateAnswers(fields: FormField[], raw: unknown) {
           v.length <= (field.type === 'TEXT' ? 500 : 5000);
         break;
       case 'NUMBER':
-        valid = typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v));
+        valid =
+          typeof v === 'string' && v.length <= 100 && v.trim() !== '' && Number.isFinite(Number(v));
         break;
       case 'DATE':
         valid =
@@ -84,6 +85,7 @@ export function validateAnswers(fields: FormField[], raw: unknown) {
       case 'CHECKBOX':
         valid =
           Array.isArray(v) &&
+          v.length <= options.length &&
           v.every((x) => typeof x === 'string' && options.includes(x)) &&
           new Set(v).size === v.length;
         break;
